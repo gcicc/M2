@@ -1,5 +1,69 @@
-# main_analysis for Accuracy
-
+#' Perform Main Analysis for Accuracy Module
+#'
+#' This function performs the core accuracy analysis by processing input data, applying 
+#' study-specific transformations, and generating Deming regression analysis results.
+#' The function handles multiple studies and creates expert panel data for comparison
+#' with ML algorithm or human reader results.
+#'
+#' @param analysis.data.in Data frame containing analysis input data with required columns:
+#'   \itemize{
+#'     \item STUDYID: Study identifier (character)
+#'     \item SITE: Site identifier (character)  
+#'     \item SUBJID: Subject identifier (character)
+#'     \item READER: Reader type identifier (character, e.g., "MLV21", "HumanAve")
+#'     \item Endpoint columns: Numeric endpoint values (e.g., BVA, First5Percent_Mean)
+#'     \item ARM: Treatment arm (for TAK-062-2001)
+#'     \item VISIT: Visit identifier (for TAK-062-2001)
+#'   }
+#' @param this_endpoint String specifying which endpoint to analyze. Must be one of the 
+#'   valid endpoint names: "BVA", "First5Percent_Mean", "All_Mean", "All_Max", etc.
+#'
+#' @return Named list containing analysis results with the following components:
+#'   \describe{
+#'     \item{data}{Processed data frame with Expert_panel and Reader columns}
+#'     \item{deming.report}{Data frame with Deming regression coefficients and statistics}
+#'     \item{Linearity.check}{Data frame with linearity assessment results}
+#'     \item{truth.panel.CI}{Confidence intervals for paired differences}
+#'     \item{cubic.fit}{Cubic regression model object}
+#'     \item{quadratic.fit}{Quadratic regression model object}
+#'     \item{CIs}{Combined confidence intervals for truth panel and coverage probability}
+#'   }
+#'
+#' @details
+#' The function performs study-specific data processing:
+#' \itemize{
+#'   \item Milan: Creates mock expert panel using 3 simulated readers with outlier detection
+#'   \item TAK-062-2001: Samples 72 subjects and creates mock human expert panel
+#'   \item Sheffield: Uses human average as expert panel reference
+#' }
+#' 
+#' Analysis includes:
+#' \itemize{
+#'   \item Deming regression with error ratio = 1
+#'   \item Linearity assessment using cubic and quadratic terms
+#'   \item Truth panel analysis with paired differences
+#'   \item Coverage probability calculation (proportion within 0.5 units)
+#' }
+#'
+#' @examples
+#' \dontrun{
+#'   # Load prepared data
+#'   data <- form_merged_data_sets("Accuracy", "TAK-062-2001", "BVA", output_dir)
+#'   analysis_data <- bind_rows(data$merged_data.ML, data$merged_data.Human)
+#'   
+#'   # Run accuracy analysis
+#'   results <- main_analysis(analysis_data, "BVA")
+#'   
+#'   # Access results
+#'   print(results$deming.report)
+#'   print(results$Linearity.check)
+#' }
+#'
+#' @seealso
+#' \code{\link{form_merged_data_sets}} for data preparation
+#' \code{\link{mcr::mcreg}} for Deming regression implementation
+#' 
+#' @export
 main_analysis <- function(analysis.data.in=analysis.data.in, this_endpoint=this_endpoint) {
   
   # Placeholder code...

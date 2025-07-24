@@ -1,11 +1,52 @@
-#' Generate Deming Regression Plots
+#' Generate Deming Regression Plots for Accuracy Analysis
 #'
-#' @param deming.fit A list of two elements where each element contains the data and results of Deming regression analysis.
-#' @return A list of ggplot objects for each IQ level, where each plot is a Deming regression plot, and saves them as PNG files.
-#' @export
+#' Creates scatter plots showing the relationship between Expert Panel scores and 
+#' Reader scores (ML algorithm or human) with Deming regression line and identity line.
+#' Supports both single and dual IQ level configurations.
+#'
+#' @param deming.fit A list containing analysis results from main_analysis(). Each element
+#'   must contain:
+#'   \itemize{
+#'     \item data: Data frame with Expert.panel and Reader columns
+#'     \item deming.report: Results from Deming regression with EST coefficients
+#'   }
+#'   List length must be 1 or 2 (for single or dual IQ levels).
+#'
+#' @return A list of ggplot objects. For single IQ level, returns list with one plot.
+#'   For dual IQ levels, returns list with two plots (plot1, plot2). Each plot includes:
+#'   \itemize{
+#'     \item Scatter points of Expert Panel vs Reader scores
+#'     \item Deming regression line (black, solid)
+#'     \item Identity line (red, dashed)
+#'     \item Correlation coefficient in caption
+#'   }
+#'   Also saves plots as PNG files to figure_path directory.
+#'
+#' @details
+#' The function automatically detects single vs. dual IQ configuration based on list length.
+#' File naming follows pattern: [IQ_level]_[reader_type]_[endpoint]_Deming_Plot.png
+#' 
+#' Plot specifications:
+#' \itemize{
+#'   \item Scale: 0-3 range for both axes with 0.5 unit breaks
+#'   \item Legend: Positioned at bottom
+#'   \item Size: 8" width x 6" height when saved
+#' }
 #'
 #' @examples
-#' deming_plot(list(WideIQ_Std = deming_fit_data_1, NarrowIQ_Std = deming_fit_data_2))
+#' \dontrun{
+#'   # Single IQ level
+#'   results <- main_analysis(data, "BVA")
+#'   plots <- deming_plot(list(Standard = results))
+#'   
+#'   # Display plot
+#'   print(plots$plot1)
+#' }
+#'
+#' @seealso
+#' \code{\link{main_analysis}} for generating input data
+#' 
+#' @export
 deming_plot <- function(deming.fit) {
   
   # Check if deming.fit has the appropriate length
@@ -81,14 +122,49 @@ deming_plot <- function(deming.fit) {
   }
 }
 
-#' Generate Deming Regression Report
+#' Generate Deming Regression Coefficient Report Table
 #'
-#' @param deming.fit A list where each element contains the data and results of Deming regression analysis.
-#' @return A gt table summarizing the Deming regression output for the specified endpoint and reader type, and saves it as a PNG file.
-#' @export
+#' Creates a formatted table summarizing Deming regression coefficients (intercept and slope)
+#' with confidence intervals and p-values. Supports both single and dual IQ configurations.
+#'
+#' @param deming.fit A list containing analysis results from main_analysis(). Each element
+#'   must contain a deming.report component with columns:
+#'   \itemize{
+#'     \item Term: "Intercept" or "Slope"
+#'     \item EST: Point estimate
+#'     \item LCL, UCL: 95% confidence interval bounds
+#'     \item p: P-value for coefficient
+#'     \item Endpoint: Endpoint name
+#'     \item reader_type: Reader type identifier
+#'   }
+#'
+#' @return A gt table object with formatted regression results. Table includes:
+#'   \itemize{
+#'     \item Term: Intercept and Slope coefficients
+#'     \item Estimate [95% CI]: Combined point estimate and confidence interval
+#'     \item p-value: Statistical significance
+#'   }
+#'   Also saves table as PNG file to table_path directory.
+#'
+#' @details
+#' The function formats confidence intervals as "Estimate [LCL, UCL]" and rounds
+#' all numeric values to 2 decimal places. For dual IQ configurations, results
+#' are grouped by IQ level.
+#' 
+#' File naming: deming_report_[endpoint]_[reader_type].png
 #'
 #' @examples
-#' deming_regression_report(list(WideIQ_Std = deming_fit_data_1, NarrowIQ_Std = deming_fit_data_2))
+#' \dontrun{
+#'   results <- main_analysis(data, "BVA")
+#'   table <- deming_regression_report(list(Standard = results))
+#'   print(table)
+#' }
+#'
+#' @seealso
+#' \code{\link{main_analysis}} for generating input data
+#' \code{\link{gt}} for table formatting
+#' 
+#' @export
 
   
 deming_regression_report <- function(deming.fit = results.ML) {

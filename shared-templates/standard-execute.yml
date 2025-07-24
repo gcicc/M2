@@ -1,0 +1,8 @@
+# Standard Execute Options Template for MARCS Analysis Reports
+# This template provides consistent execution settings across all .qmd analysis files
+# Usage: execute: !include ../shared-templates/standard-execute.yml
+
+echo: false
+message: false
+warning: false
+tbl-cap-location: top

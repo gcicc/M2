@@ -1,0 +1,8 @@
+# Basic Parameters Template for MARCS Analysis Reports
+# This template is for modules that don't require all standard parameters
+# Usage: params: !include ../shared-templates/basic-params.yml
+
+study: "a study"
+repo_clone: "directory where the clone is"
+input_dir: "directory for the input"
+output_dir: "directory for the output"

@@ -1,12 +1,85 @@
-# main_analysis
-# This function performs the majority of the analysis calculations. it is called multiple
-# times with filtered data to support different configurations, e.g., differing IQ levels,
-# ML vs. Human, etc.
-#
-# Note that the lower triangular is implemented in a separate function (defined at the
-# bottom of this file) as it should not be run on all combinations of input data but
-# instead on a chosen "global analysis set".
-#
+#' Perform Main Analysis for Clinical-Biological Validation Association Module
+#'
+#' This function performs association analysis between MARCS endpoints and accepted 
+#' clinical endpoints to establish clinical and biological validation of the biomarker.
+#' The function calculates correlations, regression models, and association metrics
+#' for different configurations (IQ levels, ML vs. Human readers).
+#'
+#' @param merged_data Data frame containing merged clinical and MARCS data with required columns:
+#'   \itemize{
+#'     \item STUDYID: Study identifier (character)
+#'     \item SITE: Site identifier (character)
+#'     \item SUBJID: Subject identifier (character)
+#'     \item MARCS endpoints: BVA, First5Percent_Mean, etc. (numeric)
+#'     \item Clinical endpoints: Histology scores, serology markers, symptoms (numeric)
+#'     \item Visit/timepoint information for longitudinal analysis
+#'     \item IQ: Image quality level (if applicable)
+#'     \item READER: Reader type identifier
+#'   }
+#' @param this_endpoint String specifying which MARCS endpoint to analyze as primary.
+#'   Must match a column name in merged_data (e.g., "BVA", "First5Percent_Mean")
+#' @param analysis_type String specifying the type of association analysis:
+#'   \itemize{
+#'     \item "Single Timepoint Association": Cross-sectional correlations
+#'     \item "Assoc of Change Across Time": Longitudinal change associations
+#'   }
+#'
+#' @return Named list containing association analysis results with components:
+#'   \describe{
+#'     \item{correlations}{Correlation matrix between MARCS and clinical endpoints}
+#'     \item{regression_models}{List of regression model objects}
+#'     \item{association_metrics}{Summary statistics for each association}
+#'     \item{clinical_validation}{Clinical relevance assessment results}
+#'     \item{plots}{List of scatter plots and association visualizations}
+#'     \item{tables}{Formatted summary tables for reporting}
+#'   }
+#'
+#' @details
+#' This function is called multiple times with filtered data to support different 
+#' configurations (e.g., differing IQ levels, ML vs. Human readers).
+#' 
+#' The function performs analysis based on analysis_type:
+#' 
+#' For "Single Timepoint Association":
+#' \itemize{
+#'   \item Calculates Pearson and Spearman correlations
+#'   \item Fits linear regression models: clinical_endpoint ~ MARCS_endpoint
+#'   \item Assesses association strength and statistical significance
+#'   \item Creates scatter plots with regression lines
+#' }
+#' 
+#' For "Assoc of Change Across Time":
+#' \itemize{
+#'   \item Calculates change scores between timepoints
+#'   \item Correlates changes in MARCS with changes in clinical endpoints
+#'   \item Fits mixed-effects models for longitudinal associations
+#'   \item Assesses temporal relationship patterns
+#' }
+#'
+#' @note The lower triangular correlation analysis is implemented in a separate 
+#' function and should not be run on all combinations of input data but instead 
+#' on a chosen "global analysis set".
+#'
+#' @examples
+#' \dontrun{
+#'   # Load merged clinical and MARCS data
+#'   data <- form_merged_data_sets("Single Timepoint Association", 
+#'                                 "TAK-062-2001", "BVA", output_dir)
+#'   
+#'   # Run association analysis
+#'   results <- main_analysis(data$merged_clinical_data, "BVA", 
+#'                           "Single Timepoint Association")
+#'   
+#'   # Access results
+#'   print(results$correlations)
+#'   print(results$association_metrics)
+#' }
+#'
+#' @seealso
+#' \code{\link{form_merged_data_sets}} for data preparation
+#' \code{\link{cor.test}} for correlation testing
+#' 
+#' @export
 
 #' Perform Main Analysis
 #'

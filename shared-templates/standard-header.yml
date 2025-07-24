@@ -1,0 +1,21 @@
+# Standard PDF Header Template for MARCS Analysis Reports
+# This template provides consistent formatting across all .qmd analysis files
+# Usage: format: !include ../shared-templates/standard-header.yml
+
+pdf:
+  header-includes: 
+    - \usepackage{geometry}
+    - \geometry{top=0.75in,left=0.80in,bottom=0.5in,right=0.80in}
+    - \usepackage{float}  # For precise float control
+  include-in-header: 
+    text: |
+      \usepackage{scrlayer-scrpage}
+      \cohead[{\includegraphics[height=4cm]{images/Logo.png}}]{MARCS Analysis Report}
+  embed-resources: true
+  smooth-scroll: true
+  toc: true
+  toc-location: left
+  toc-title: Contents
+  toc-depth: 3
+  number-sections: true
+  number-offset: 1

@@ -1,31 +1,17 @@
 ---
 title: "Agreement with Gastroenterologist Scoring by VCE"
-format: pdf
-toc: true
-number-sections: true
-params:
-  study: "a study"
-  repo_clone: "directory where the clone is"
-  input_dir: "directory for the input"
-  output_dir: "directory for the output"
-execute: 
-  echo: false
-  message: false
-  warning: false
-  tbl-cap-location: top
+author: "MARCS Crossfunctional Team"
+date: last-modified
+date-format: "MMM D, YYYY   hh:mm"
+format: !include ../shared-templates/standard-header.yml
+params: !include ../shared-templates/basic-params.yml
+execute: !include ../shared-templates/standard-execute.yml
 editor: visual
 ---
 
 ```{r packages-and-source}
-study <- params$study
-repo_clone <- params$repo_clone
-input_dir <- params$input_dir
-output_dir <- params$output_dir 
-source(paste0(repo_clone,"/Shared-Content/preamble.R"))
-table_path <- path(output_dir,"tables")
-dir.create(table_path)
-figure_path <- path(output_dir,"figures")
-dir.create(figure_path)
+source(file.path(params$repo_clone, "Shared-Content", "setup-analysis-environment.R"))
+analysis_ctx <- setup_analysis_environment(params, "CE-VAST-Agreement")
 ```
 
 ## Analysis Inputs: Prepared data following ETL.

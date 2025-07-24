@@ -1,9 +1,80 @@
-# main_analysis for CE-VAST-Agreement
-# This function performs the majority of the analysis calculations. it is called multipe
-# times with filtered data to support different configurations, e.g., differing IQ levels,
-# ML vs. Human, etc.
-#
-
+#' Perform Main Analysis for CE-VAST Agreement Module
+#'
+#' This function performs agreement analysis between expert gastroenterologists/pathologists 
+#' and the ML algorithm for per-frame disease severity assessment on the CE-VAST scale.
+#' The function compares frame-level evaluations and calculates agreement metrics.
+#' It is called multiple times with filtered data to support different configurations
+#' (e.g., differing IQ levels, ML vs. Human readers).
+#'
+#' @param analysis.data.in Data frame containing processed VCE scoring data with required columns:
+#'   \itemize{
+#'     \item STUDYID: Study identifier (character)
+#'     \item SITE: Site identifier (character)
+#'     \item SUBJID: Subject identifier (character)
+#'     \item READER: Reader identifier (ML algorithm or expert identifier)
+#'     \item Frame-level scores: CE-VAST scale measurements per frame (0-3 severity)
+#'     \item Position/timing information: For matching frames between readers
+#'     \item IQ level: Image quality classification (if applicable)
+#'   }
+#' @param reader_type String identifying the reader type being analyzed:
+#'   \itemize{
+#'     \item "ML": Machine learning algorithm
+#'     \item "Human": Human expert reader
+#'     \item "Gastroenterologist": GI specialist
+#'     \item "Pathologist": Pathology specialist
+#'   }
+#'
+#' @return Named list containing agreement analysis results with components:
+#'   \describe{
+#'     \item{agreement_metrics}{Data frame with agreement statistics between readers}
+#'     \item{frame_comparisons}{Detailed frame-by-frame comparison results}
+#'     \item{summary_statistics}{Overall agreement summary across all comparisons}
+#'     \item{reader_characteristics}{Reader-specific performance metrics}
+#'     \item{correlation_analysis}{Correlation coefficients and significance tests}
+#'     \item{concordance_measures}{Concordance correlation coefficients}
+#'     \item{bias_assessment}{Systematic bias evaluation between reader types}
+#'   }
+#'
+#' @details
+#' The function performs the following analyses:
+#' \itemize{
+#'   \item Matches frames between expert and ML algorithm based on position/timing
+#'   \item Calculates per-frame agreement on CE-VAST scale (0-3 severity levels)
+#'   \item Computes overall agreement statistics (correlation, concordance, kappa)
+#'   \item Assesses systematic differences between reader types
+#'   \item Handles cases where frame positions have different decimal precision
+#'   \item Evaluates agreement across different image quality levels
+#' }
+#' 
+#' Agreement metrics include:
+#' \itemize{
+#'   \item Pearson and Spearman correlation coefficients
+#'   \item Concordance correlation coefficient (CCC)
+#'   \item Cohen's kappa for categorical agreement
+#'   \item Bland-Altman analysis for bias assessment
+#'   \item Percentage exact agreement and within-1-level agreement
+#' }
+#' 
+#' @note Frame-level agreement with expert gastroenterologists is informative,
+#' but region-level bias and linearity assessments are definitive for the BVA biomarker.
+#'
+#' @examples
+#' \dontrun{
+#'   # Load processed agreement data
+#'   data <- load_agreement_data("Milan", "gastroenterologist")
+#'   
+#'   # Run agreement analysis for ML vs. Gastroenterologist
+#'   results <- main_analysis(data, "ML")
+#'   
+#'   # Access results
+#'   print(results$agreement_metrics)
+#'   print(results$summary_statistics)
+#' }
+#'
+#' @seealso
+#' \code{\link{demog_milan_etl}}, \code{\link{vce_milan_etl}} for data preparation
+#' 
+#' @export
 main_analysis <- function(analysis.data.in, reader_type) {
   # Initializing return ----
   for.return <- list()

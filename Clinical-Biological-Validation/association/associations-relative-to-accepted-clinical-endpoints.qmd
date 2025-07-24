@@ -3,35 +3,9 @@ title: "**Associations of MARCS `r gsub(x=gsub(x=params$this_endpoint, pattern='
 author: "MARCS Crossfunctional Team"
 date: last-modified
 date-format: "MMM D, YYYY   hh:mm"
-format: 
-  pdf:
-    header-includes: 
-      \usepackage{geometry}
-      \geometry{top=0.75in,left=0.80in,bottom=0.5in,right=0.80in}
-    include-in-header: 
-      text: |
-        \usepackage{scrlayer-scrpage}
-        \cohead[{\includegraphics[height=4cm]{images/Logo.png}}]{Association of MARCS Score Relative to Comparators}
-    embed-resources: true
-    smooth-scroll: true
-    toc: true
-    toc-location: left
-    toc-title: Contents
-    toc-depth: 3
-    number-sections: true
-    number-offset: 1
-params:
-  analysis_type: "formal type of this analysis"
-  study: "a study"
-  repo_clone: "directory where the clone is"
-  input_dir: "directory for the input"
-  output_dir: "directory for the output"
-  this_endpoint: "which of the MARCS scores to use"
-execute: 
-  echo: false
-  message: false
-  warning: false
-  tbl-cap-location: top
+format: !include ../../shared-templates/standard-header.yml
+params: !include ../../shared-templates/standard-params.yml
+execute: !include ../../shared-templates/standard-execute.yml
 editor_options: 
   chunk_output_type: console
 ---
@@ -65,36 +39,11 @@ The analysis documented here is also performed on other studies undertaken by th
 \clearpage
 
 ```{r analysis, fig.align='center', echo=FALSE, warning=FALSE, error=FALSE}
-study <- params$study
-repo_clone <- params$repo_clone
-input_dir <- params$input_dir
-output_dir <- params$output_dir
-this_endpoint <- params$this_endpoint
+source(file.path(params$repo_clone, "Shared-Content", "setup-analysis-environment.R"))
+analysis_ctx <- setup_analysis_environment(params, "association", "Clinical-Biological-Validation")
 
-source(paste0(repo_clone, "/Shared-Content/preamble.R"))
-# We need to gix this issue with filename length, paticularly in the _details folder
-# source(paste0(repo_clone, "/Clinical-Biological-Validation/Deep Dive Symptomatology/Symptom-window-analyses.R"))
-
-functions_path <- path(repo_clone, "Clinical-Biological-Validation", "association", "functions")
-r_files <- list.files(path=functions_path, pattern="\\.R$", full.names=TRUE)
-cpp_files <- list.files(path=functions_path, pattern="\\.cpp$", full.names=TRUE)
-for (file in r_files) {
-  source(file)
-}
-for (file in cpp_files) {
-  sourceCpp(file)
-}
-
-
-# Source Symptom-window-analyses.R
-# Note: this code can't be run due to long filenames.  Perhaps we create an .csv look-up sheet...
+# Note: Symptom-window-analyses.R can't be run due to long filenames
 # source(path(repo_clone, "Clinical-Biological-Validation", "Deep Dive Symptomatology", "Symptom-window-analyses.R"))
-
-
-table_path <- path(output_dir, "tables")
-dir.create(table_path)
-figure_path <- path(output_dir, "figures")
-dir.create(figure_path)
 
 # tictoc::tic() # 4.224 minutes!!!
 form_merged_data_sets_output <- form_merged_data_sets(analysis_type=params$analysis_type, study=study, this_endpoint=this_endpoint, output_dir=output_dir)

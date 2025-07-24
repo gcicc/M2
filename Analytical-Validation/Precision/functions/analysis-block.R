@@ -1,5 +1,64 @@
-# analysis block for precision
-
+#' Perform Main Analysis for Precision Module
+#'
+#' This function performs precision analysis using Variance Components Analysis (VCA)
+#' to assess repeatability and reproducibility of MARCS endpoint measurements.
+#' The function calculates total analytic variation, reproducibility coefficient,
+#' and minimum detectable difference.
+#'
+#' @param analysis.data.in Data frame containing precision analysis input data with required columns:
+#'   \itemize{
+#'     \item STUDYID: Study identifier (character)
+#'     \item SUBJID: Subject identifier (character, will be converted to factor)
+#'     \item Traversal: Traversal identifier (numeric or factor for different readings)
+#'     \item Endpoint column: Numeric endpoint values corresponding to this_endpoint
+#'   }
+#' @param reader_type String identifying the reader type (e.g., "ML", "Human") for metadata
+#' @param this_endpoint String specifying which endpoint to analyze. Must match a column
+#'   name in analysis.data.in (e.g., "BVA", "First5Percent_Mean")
+#'
+#' @return Named list containing precision analysis results with the following components:
+#'   \describe{
+#'     \item{vca.anova.fit}{ANOVA table from VCA analysis with variance components}
+#'     \item{REML.fit}{REML fit object from fitVCA()}
+#'     \item{VCA.total.analytic.variation}{Data frame with Total Analytic Variability, 
+#'           Reproducibility Coefficient, and Repeatability Coefficient estimates and CIs}
+#'     \item{MDD}{Minimum Detectable Difference calculated from pooled variance}
+#'     \item{data}{Input data with added endpoint and reader metadata}
+#'   }
+#'
+#' @details
+#' The function performs the following analyses:
+#' \itemize{
+#'   \item Fits VCA model: endpoint ~ (Subject + Traversal + Subject*Traversal)
+#'   \item Calculates variance components for subjects, traversals, interactions, and error
+#'   \item Computes Total Analytic Variation (traversal + interaction + error components)
+#'   \item Derives Reproducibility Coefficient (RDC) with confidence intervals
+#'   \item Calculates Repeatability Coefficient with confidence intervals  
+#'   \item Computes Minimum Detectable Difference using pooled variance
+#' }
+#' 
+#' For studies other than Sheffield, simulated data is generated to demonstrate the methodology.
+#' For TAK-062-2001, real retest data is used when available.
+#'
+#' @examples
+#' \dontrun{
+#'   # Load prepared data  
+#'   data <- form_merged_data_sets("Precision", "TAK-062-2001", "BVA", output_dir)
+#'   analysis_data <- data$merged_data.ML$merged_data.ML.full
+#'   
+#'   # Run precision analysis
+#'   results <- main_analysis(analysis_data, "ML", "BVA")
+#'   
+#'   # Access results
+#'   print(results$VCA.total.analytic.variation)
+#'   print(paste("MDD:", results$MDD))
+#' }
+#'
+#' @seealso
+#' \code{\link{VCA::anovaVCA}} for variance components analysis
+#' \code{\link{VCA::fitVCA}} for REML fitting
+#' 
+#' @export
 main_analysis <- function(analysis.data.in, reader_type, this_endpoint) {
 
   # A function to create dummy data

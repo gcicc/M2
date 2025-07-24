@@ -1,0 +1,10 @@
+# Standard Parameters Template for MARCS Analysis Reports
+# This template provides consistent parameter definitions across all .qmd analysis files
+# Usage: params: !include ../shared-templates/standard-params.yml
+
+analysis_type: "formal type of this analysis"
+study: "a study"
+repo_clone: "directory where the clone is"
+input_dir: "directory for the input"
+output_dir: "directory for the output"
+this_endpoint: "which of the MARCS scores to use"
