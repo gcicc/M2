@@ -1,0 +1,223 @@
+---
+title: "Create Mock data sets"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Start with dataset from determination-of-the-strength-of-surrogacy.qmd
+
+```{r}
+require(tidyverse)
+```
+
+```{r}
+library(readr)
+my.df <- read_csv("C:/Users/eri7441/OneDrive - Takeda/Documents - MARCS-Validation-Data/Output/Proportion Explained/2024-11-26 TAK-062-2001 GC/7 global_analysis_set-prefilter-ML.csv")
+names(my.df)
+my.df <- my.df %>% dplyr::select(1:4, 11,13, 35)
+my.df %>% View()
+my.df %>% pivot_longer(6:7) %>%
+  group_by(name) %>%
+  dplyr::summarize(mean=mean(value,na.rm=T),
+            sd=sd(value,na.rm=T))
+# SD for add_histology, BVA are .9, .7, resp.
+
+add.surrogate <- function(data.in, mean_S = 0, sd_S = 0.7){
+  data.in <- data.in %>% dplyr::mutate(BVA = rnorm(n = n(), mean = mean_S, sd = sd_S))
+  list(data=data.in, metrics = data.frame(mean_S=mean_S, sd_S = sd_S))
+}
+add.endpoint <- function(data.in, beta=0, alpha=0, mu_T=0,cor_matrix=cor.matrix.2){
+  beta_S <- beta - (cor_matrix[1, 2] / cor_matrix[1, 1] * alpha)
+  gamma_Z <- cor_matrix[1, 2] / cor_matrix[1, 1]
+  var_T <- cor_matrix[2, 2] - (cor_matrix[1, 2]^2 / cor_matrix[1, 1])
+  data.in[[1]] <- data.in[[1]] %>% dplyr::mutate(Agg_Histology = mu_T + beta_S + gamma_Z * BVA + rnorm(n = n(), mean = 0, sd = sqrt(var_T)))
+  list(data=data.in[[1]], metric=cbind(data.in[[2]], data.frame(beta=beta, alpha=alpha, mu_T=mu_T, beta_S=beta_S, gamma_Z = gamma_Z, var_T=var_T)))
+}
+
+cor.matrix.2 <- compute_covariance_matrix(variances = c(0.7^2, 0.9^2), cor_matrix = rbind(c(1, .2), c(.2, 1)))
+cor.matrix.4 <- compute_covariance_matrix(variances = c(0.7^2, 0.9^2), cor_matrix = rbind(c(1, .4), c(.4, 1)))
+cor.matrix.7 <- compute_covariance_matrix(variances = c(0.7^2, 0.9^2), cor_matrix = rbind(c(1, .7), c(.7, 1)))
+cor.matrix.9 <- compute_covariance_matrix(variances = c(0.7^2, 0.9^2), cor_matrix = rbind(c(1, .9), c(.9, 1)))
+
+# Initialize data.frame
+mock.data <- my.df %>% ungroup() %>% sample_n(size = 53*2, replace=TRUE) %>% dplyr::select(ARM, BVA, Agg_Histology)
+mock.data$ARM <- c(rep("PBO", 53), rep("TRT", 53))
+mock.data.pbo <- mock.data %>% dplyr::filter(ARM=="PBO")
+mock.data.trt <- mock.data %>% dplyr::filter(ARM=="TRT")
+
+
+run.scenario <- function(mean_S_PBO = 0,    sd_S_PBO=0.7, beta_PBO=0, alpha_PBO=0,  mu_T_PBO=0,  cor_matrix_PBO=cor.matrix.2,
+                         mean_S_TRT = -.75, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=-.5, cor_matrix_TRT=cor.matrix.2, n=200){
+mock.data <- my.df %>% ungroup() %>% sample_n(size = n*2, replace=TRUE) %>% dplyr::select(ARM, BVA, Agg_Histology)
+mock.data$ARM <- c(rep("PBO", n), rep("TRT", n))
+mock.data.pbo <- mock.data %>% dplyr::filter(ARM=="PBO")
+mock.data.trt <- mock.data %>% dplyr::filter(ARM=="TRT")
+# Step 1 - add surrogate
+mock.data.pbo <- add.surrogate(data.in=mock.data.pbo, mean_S = mean_S_PBO, sd_S = sd_S_PBO)
+# Treatment should have non-zero mean_S
+# BVA on treatment drops by -.5
+mock.data.trt <- add.surrogate(data.in=mock.data.trt, mean_S = mean_S_TRT, sd_S = sd_S_TRT)
+# Step 2 - add endpoint 
+mock.data.pbo <- add.endpoint(data.in=mock.data.pbo,  beta=beta_PBO, alpha=alpha_PBO, mu_T=mu_T_PBO, cor_matrix=cor_matrix_PBO)
+# For treatment, 
+mock.data.trt <- add.endpoint(data.in=mock.data.trt,  beta=beta_TRT, alpha=alpha_TRT, mu_T=mu_T_TRT,cor_matrix=cor_matrix_TRT)
+mock.data <- bind_rows(mock.data.pbo[[1]], mock.data.trt[[1]]) %>% dplyr::select(ARM, BVA, Agg_Histology)
+lm(Agg_Histology ~ ARM, data= mock.data)
+lm(BVA ~ ARM, data= mock.data)
+mock.data %>% ggplot(aes(x=BVA, y=Agg_Histology)) + geom_point()
+
+metrics <- bind_rows(mock.data.pbo[[2]] %>% dplyr::mutate(arm="PBO"), mock.data.trt[[2]] %>% dplyr::mutate(arm="TRT"))
+surrog.statistics.full <- compute.surrog.statistics(data.in=mock.data, this_endpoint="BVA", comparatorT="Agg_Histology", reader_type="ML", dataset.descript="Full data") 
+prentice.figure.list.full <- prentice.fig.suite(data.in=mock.data, this_endpoint="BVA", comparatorT="Agg_Histology", model.in=surrog.statistics.full, dataset.descript="Full data")
+list(surrog.statistics.full, prentice.figure.list.full, mock.data)
+}
+```
+
+DIALED IN: 
+
+* High correlation
+* mean_S_TRT serves to separate treatment from pbo on the surrogate by location shift
+* mu_T_TRT should be dialed in so that ARMTRT is non-significant.  mu_T_TRT serves to add space creating parallel regression lines.  We want overlapping regression lines
+* 
+
+```{r}
+# Demonstation of location shift imparted by mu_T_TRT
+set.seed(123) # PE, RE are negative.  Prentice critera not met: Treatment not sign on surrogate or true
+holdit.1 <- run.scenario(cor_matrix_PBO=cor.matrix.9, cor_matrix_TRT=cor.matrix.9,
+                       mean_S_TRT = 0, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1.25, mu_T_TRT=-.5)
+
+set.seed(123) # Improved PE = .842, RE = 1.38, assoc= 0.889    
+holdit.2 <- run.scenario(cor_matrix_PBO=cor.matrix.9, cor_matrix_TRT=cor.matrix.9,
+                       mean_S_TRT = -.25, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1.25, mu_T_TRT=-.5)
+set.seed(123) # PE = .917, RE = 1.26, assoc=0.889    
+holdit.3 <- run.scenario(cor_matrix_PBO=cor.matrix.9, cor_matrix_TRT=cor.matrix.9,
+                       mean_S_TRT = -.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1.25, mu_T_TRT=-.5)
+
+set.seed(123) # PE = .944, RE = 1.23,  assoc=0.889    
+holdit.4 <- run.scenario(cor_matrix_PBO=cor.matrix.9, cor_matrix_TRT=cor.matrix.9,
+                       mean_S_TRT = -.75, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1.25, mu_T_TRT=-.5)
+
+set.seed(123) # PE = .972, RE = 1.19, assoc=0.889    
+holdit.5 <- run.scenario(cor_matrix_PBO=cor.matrix.9, cor_matrix_TRT=cor.matrix.9,
+                       mean_S_TRT = -1.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1.25, mu_T_TRT=-.5)
+
+set.seed(123) # PE = .984, RE = 1.18, 0.889    
+holdit.6 <- run.scenario(cor_matrix_PBO=cor.matrix.9, cor_matrix_TRT=cor.matrix.9,
+                       mean_S_TRT = -2.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1.25, mu_T_TRT=-.5)
+```
+
+
+
+```{r}
+set.seed(123) # PE, RE are negative.  Prentice critera not met: Treatment not sign on surrogate or true
+holdit.7 <- run.scenario(cor_matrix_PBO=cor.matrix.9, cor_matrix_TRT=cor.matrix.9,
+                       mean_S_TRT = 0, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=-.3)
+
+set.seed(123) # Improved PE = .870, RE = 1.33
+holdit.8 <- run.scenario(cor_matrix_PBO=cor.matrix.9, cor_matrix_TRT=cor.matrix.9,
+                       mean_S_TRT = -.25, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=-.2)
+set.seed(123) # PE = .933, RE = 1.24
+holdit.9 <- run.scenario(cor_matrix_PBO=cor.matrix.9, cor_matrix_TRT=cor.matrix.9,
+                       mean_S_TRT = -.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=-.2)
+
+set.seed(123) # PE = .955, RE = 1.21
+holdit.10 <- run.scenario(cor_matrix_PBO=cor.matrix.9, cor_matrix_TRT=cor.matrix.9,
+                       mean_S_TRT = -.75, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=-.2)
+
+set.seed(123) # PE = .978, RE = 1.19
+holdit.11 <- run.scenario(cor_matrix_PBO=cor.matrix.9, cor_matrix_TRT=cor.matrix.9,
+                       mean_S_TRT = -1.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=-.2)
+
+set.seed(123) # PE = .987, RE = 1.17
+holdit.12 <- run.scenario(cor_matrix_PBO=cor.matrix.9, cor_matrix_TRT=cor.matrix.9,
+                       mean_S_TRT = -2.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=-.2)
+
+set.seed(123) # PE = 1.07, RE = 1.08
+holdit.12a <- run.scenario(cor_matrix_PBO=cor.matrix.9, cor_matrix_TRT=cor.matrix.9,
+                       mean_S_TRT = -2.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1.2, mu_T_TRT=-.2)
+
+set.seed(123) # PE = .987, RE = 1.17
+holdit.12b <- run.scenario(cor_matrix_PBO=cor.matrix.9, cor_matrix_TRT=cor.matrix.9,
+                       mean_S_TRT = -1.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1.1, mu_T_TRT=-.3)
+```
+
+
+
+```{r}
+# Demonstation of location shift imparted by mu_T_TRT
+set.seed(123) # PE, RE are negative.  Prentice critera not met: Treatment not sign on surrogate or true
+holdit.13 <- run.scenario(cor_matrix_PBO=cor.matrix.2, cor_matrix_TRT=cor.matrix.2,
+                       mean_S_TRT = 0, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1.25, mu_T_TRT=-.5)
+
+set.seed(123) # Improved PE = .264, RE = .99, assoc=0.191   
+holdit.14 <- run.scenario(cor_matrix_PBO=cor.matrix.2, cor_matrix_TRT=cor.matrix.2,
+                       mean_S_TRT = -.25, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1.25, mu_T_TRT=.5)
+
+set.seed(123) # PE = .507, RE = .515
+holdit.15 <- run.scenario(cor_matrix_PBO=cor.matrix.2, cor_matrix_TRT=cor.matrix.2,
+                       mean_S_TRT = -.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1.25, mu_T_TRT=.55)
+
+set.seed(123) # PE = .527, RE = .496
+holdit.16 <- run.scenario(cor_matrix_PBO=cor.matrix.2, cor_matrix_TRT=cor.matrix.2,
+                       mean_S_TRT = -.75, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1.25, mu_T_TRT=.5)
+
+set.seed(123) # PE = .764, RE = .342
+holdit.17 <- run.scenario(cor_matrix_PBO=cor.matrix.2, cor_matrix_TRT=cor.matrix.2,
+                       mean_S_TRT = -1.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1.25, mu_T_TRT=.55)
+
+set.seed(123) # PE = .849, RE = .308
+holdit.18 <- run.scenario(cor_matrix_PBO=cor.matrix.2, cor_matrix_TRT=cor.matrix.2,
+                       mean_S_TRT = -2.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1.25, mu_T_TRT=.55)
+```
+
+
+
+```{r}
+set.seed(123) # PE, RE are negative.  Prentice critera not met: Treatment not sign on surrogate or true
+holdit.19 <- run.scenario(cor_matrix_PBO=cor.matrix.2, cor_matrix_TRT=cor.matrix.2,
+                       mean_S_TRT = 0, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=-.3)
+
+set.seed(123) # Improved PE = .611, RE = .428
+holdit.20 <- run.scenario(cor_matrix_PBO=cor.matrix.2, cor_matrix_TRT=cor.matrix.2,
+                       mean_S_TRT = -.25, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=.7)
+
+set.seed(123) # PE = .767, RE = .341
+holdit.21 <- run.scenario(cor_matrix_PBO=cor.matrix.2, cor_matrix_TRT=cor.matrix.2,
+                       mean_S_TRT = -.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=.7)
+
+set.seed(123) # PE = .836, RE = .313
+holdit.22 <- run.scenario(cor_matrix_PBO=cor.matrix.2, cor_matrix_TRT=cor.matrix.2,
+                       mean_S_TRT = -.75, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=.7)
+
+set.seed(123) # PE = .918, RE = .285
+holdit.23 <- run.scenario(cor_matrix_PBO=cor.matrix.2, cor_matrix_TRT=cor.matrix.2,
+                       mean_S_TRT = -1.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=.7)
+
+set.seed(123) # PE = .955, RE = .274
+holdit.24 <- run.scenario(cor_matrix_PBO=cor.matrix.2, cor_matrix_TRT=cor.matrix.2,
+                       mean_S_TRT = -2.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=.7)
+```
+
+
+
+
+```{r}
+
+set.seed(123) # PE = .821, RE = .475, assoc=.289
+holdit.25 <- run.scenario(cor_matrix_PBO=cor.matrix.2, cor_matrix_TRT=cor.matrix.4,
+                       mean_S_TRT = -.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=.5)
+
+apply(matrix(1:100), 1, function(x){
+  run.scenario(cor_matrix_PBO=cor.matrix.2, cor_matrix_TRT=cor.matrix.4,
+                       mean_S_TRT = -.5, sd_S_TRT=0.7, beta_TRT=-1, alpha_TRT=-1, mu_T_TRT=.5)[[1]]$altogether %>% dplyr::mutate(sim=x)
+  
+}) %>% bind_rows() -> sim.run
+
+
+head(sim.run)
+sim.run$Term2 <- paste(sim.run$Term, sim.run$model_type)
+sim.run %>% ggplot(aes(x=Estimate))+geom_density() + facet_wrap(~Term2, scales="free")
+
+```

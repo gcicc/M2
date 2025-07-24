@@ -1,0 +1,145 @@
+---
+title: "Untitled"
+format: html
+editor: visual
+---
+
+## Load packages
+
+```{r}
+require(tidyverse)
+```
+
+## Load data
+
+```{r}
+library(readr)
+Milan <- read_csv("C:/Users/eri7441/OneDrive - Takeda/Documents - MARCS-Validation-Data/DA/Input/Summary of Training Data/ClinicalData_Collected20250314/ClinicalData_Collected20250314/AllMetrics_Milan.csv")
+Sheffield <- read_csv("C:/Users/eri7441/OneDrive - Takeda/Documents - MARCS-Validation-Data/DA/Input/Summary of Training Data/ClinicalData_Collected20250314/ClinicalData_Collected20250314/AllMetrics_Sheffield63.csv")
+TAK <- read_csv("C:/Users/eri7441/OneDrive - Takeda/Documents - MARCS-Validation-Data/DA/Output/Single Timepoint Association/2025-03-11 TAK-062-2001 GC/8 analysis.data.in-ML-BVA.csv")
+```
+```{r fig.width=10, fig.height=5}
+require(ggforce)
+Milan <- Milan %>%
+  dplyr::select(SubjectID, Visit, contains("Mar")) %>%
+  arrange(SubjectID, Visit) %>%
+  mutate(
+    MarshBulbAbove1 = factor(MarshBulbAbove1, levels = c(NA, 0, 1, 2, 3, 4, 5), exclude = NULL),
+    MarshBulb = factor(MarshBulb, levels = c(NA, 0, 1, 2, 3, 4, 5), exclude = NULL),
+    MarshD2Above1 = factor(MarshD2Above1, levels = c(NA, 0, 1, 2, 3, 4, 5), exclude = NULL),
+    MarshD2 = factor(MarshD2, levels = c(NA, 0, 1, 2, 3, 4, 5), exclude = NULL),
+    MarshJejunum = factor(MarshJejunum, levels = c(NA, 0, 1, 2, 3, 4, 5), exclude = NULL)
+  ) %>% pivot_longer(cols=3:7, names_to="Marsh", values_to="MarshScore") %>%
+  dplyr::mutate(MarshScore = as.character(MarshScore),
+                MarshScore = ifelse(is.na(MarshScore), "NA", MarshScore),
+                MarshScore = factor(MarshScore, levels = c("NA", "0", "1", "2", "3", "4", "5"), exclude = NULL)) 
+
+
+
+Milan %>%
+  ggplot(aes(x=Visit, y=MarshScore, color=Marsh)) + 
+  scale_x_continuous(breaks = c(1,2), limits=c(1,2)) +
+  facet_grid_paginate(SubjectID ~ Marsh, nrow = 5, ncol=5, page = 1) + geom_point()
+```
+```{r}
+Milan %>% group_by(Marsh, MarshScore) %>%
+  tally() %>%  complete(MarshScore = factor(c(0, 1, 2, 3, 4, 5, NA), levels = c(0, 1, 2, 3, 4, 5, NA)), fill = list(n = 0)) %>%View()
+```
+
+
+
+```{r}
+frequency_counts <- Milan %>%
+  group_by(Visit, Marsh, MarshScore) %>%
+  tally() %>%
+  complete(MarshScore = factor(c(0, 1, 2, 3, 4, 5, NA), levels = c(0, 1, 2, 3, 4, 5, NA)), fill = list(n = 0))
+
+
+ggplot(frequency_counts, aes(x = factor(Visit), y = n, fill = factor(MarshScore, levels = c(NA, 0, 1, 2, 3, 4, 5)))) +
+  geom_bar(stat="identity", position = "dodge", width = 0.7) +
+  facet_grid(~ Marsh, drop = FALSE, scales = "free_x", space = "free_x", switch = "x") +  # drop = FALSE ensures unused factor levels are retained
+  theme_minimal() +
+  labs(title = "Frequency of MarshScores across Visits",
+       x = "Visit", 
+       fill = "MarshScore")+
+  theme(legend.position = "bottom")
+```
+
+```{r}
+Milan <- read_csv("C:/Users/eri7441/OneDrive - Takeda/Documents - MARCS-Validation-Data/DA/Input/Summary of Training Data/ClinicalData_Collected20250314/ClinicalData_Collected20250314/AllMetrics_Milan.csv")
+
+# retain SubjectID, Visit, contains("Mar")
+Milan <- Milan %>%
+  dplyr::select(SubjectID, Visit, contains("Mar")) %>%
+  arrange(SubjectID, Visit) %>%
+  # convert to factors
+  mutate(
+    MarshBulbAbove1 = factor(MarshBulbAbove1, levels = c(NA, 0, 1, 2, 3, 4, 5), exclude = NULL),
+    MarshBulb = factor(MarshBulb, levels = c(NA, 0, 1, 2, 3, 4, 5), exclude = NULL),
+    MarshD2Above1 = factor(MarshD2Above1, levels = c(NA, 0, 1, 2, 3, 4, 5), exclude = NULL),
+    MarshD2 = factor(MarshD2, levels = c(NA, 0, 1, 2, 3, 4, 5), exclude = NULL),
+    MarshJejunum = factor(MarshJejunum, levels = c(NA, 0, 1, 2, 3, 4, 5), exclude = NULL)
+  ) %>%
+  # pivot_longer to convert to long format
+  pivot_longer(cols=3:7, names_to="Marsh", values_to="MarshScore") %>%
+  # convert MarshScore to character
+  dplyr::mutate(MarshScore = as.character(MarshScore),
+                # convert NA to "NA"
+                MarshScore = ifelse(is.na(MarshScore), "NA", MarshScore),
+                # convert to factor
+                MarshScore = factor(MarshScore, levels = c("NA", "0", "1", "2", "3", "4", "5"), exclude = NULL))
+
+# Convert MarshScore to numeric with "NA" as NA and levels of MarshScore mapped to as.numeric(as.character)
+Milan <- Milan %>% mutate(MarshScore = as.numeric(as.character(MarshScore)))
+# For each subject and visit, computer the maximum MarshScore over all Marshes using na.rm=TRUE
+Milan <- Milan %>% group_by(SubjectID, Visit) %>% dplyr::summarize(MarshMax = max(MarshScore, na.rm=TRUE))
+#plot visit vs. MarshMax using position_jitter to avoid overplotting. Only display 1 and 2 on x-axis
+ggplot(data=Milan, aes(x=Visit, y=MarshMax)) + geom_point(position = position_jitter(height=.1, width=.1)) +
+  labs(title = "MarshMax vs Visit",
+       x = "Visit",
+       y = "MarshMax",
+       caption="Observations are jittered from their interger values to avoid overplotting") +
+  scale_x_continuous(breaks = c(1,2), limits=c(.5,2.5))
+
+# Frequency table of MarshMax by visit
+table(Milan$Visit, Milan$MarshMax, useNA = "always")
+round(prop.table(table(Milan$Visit, Milan$MarshMax, useNA = "always")),2)
+```
+
+
+
+```{r}
+all.equal(Sheffield$`Marsh:Max`, pmax(Sheffield$`Marsh:D1`, Sheffield$`Marsh:D2`, na.rm=T))
+
+ggplot(data=Sheffield, aes(x=`Marsh:D1`, y=`Marsh:D2`)) +
+  geom_point(position = position_jitter(height=.1, width=.1)) +
+  geom_abline(intercept = 0, slope = 1, color = "red") +
+  labs(title = "Marsh:D1 vs Marsh:D2",
+       x = "Marsh:D1",
+       y = "Marsh:D2",
+       caption="Observations are jittered from their interger values to avoid overplotting")
+
+table(Sheffield$`Marsh:D1`, useNA = "always")
+table(Sheffield$`Marsh:D2`, useNA = "always")
+table(Sheffield$`Marsh:Max`, useNA = "always")
+
+round(prop.table(table(Sheffield$`Marsh:D1`, useNA = "always")),2)
+round(prop.table(table(Sheffield$`Marsh:D2`, useNA = "always")),2)
+round(prop.table(table(Sheffield$`Marsh:Max`, useNA = "always")),2)
+
+```
+
+```{r}
+names(TAK)
+TAK <- TAK %>% dplyr::mutate(MO = ifelse(is.na(MO), "NA", MO))
+TAK <- TAK %>% dplyr::mutate(MO = factor(MO, c("NA", "M0",  "M1",  "M2",  "M3A", "M3B", "M3C")))
+ggplot(TAK %>% dplyr::filter(VISIT != "VISIT 5 - Week 12"), aes(x=VISIT, y=MO)) + geom_point(position = position_jitter(height=.1, width=.1)) +
+  labs(title = "Marsh Observed vs Visit",
+       x = "Visit",
+       y = "Marsh Observed",
+       caption="Observations are jittered from their interger values to avoid overplotting")
+# Frequency table of M) for each visit with column for relative freuqency
+TAK %>% dplyr::filter(VISIT != "VISIT 5 - Week 12") %>% group_by(VISIT, MO) %>% tally() %>% complete(MO = factor(c("NA", "M0",  "M1",  "M2",  "M3A", "M3B", "M3C"), levels = c("NA", "M0",  "M1",  "M2",  "M3A", "M3B", "M3C")), fill = list(n = 0)) %>%
+  mutate(freq = n/sum(n)) %>% View()
+```
+

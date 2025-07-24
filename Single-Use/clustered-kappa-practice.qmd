@@ -1,0 +1,34 @@
+---
+title: "clustered kappa"
+format: html
+editor: visual
+---
+
+This approach runs psych::cohen.kappa and then combines using metfor::rma
+
+```{r}
+# Install and load necessary packages
+library(irr)
+library(lme4)
+library(psych)
+library(metafor)
+require(tidyverse)
+# Example data
+# Example data
+data <- data.frame(
+  subject = rep(1:120, each = 60),
+  rater1 = sample(0:3, 7200, replace = TRUE),
+  rater2 = sample(0:3, 7200, replace = TRUE)
+)
+
+#  Calculate weighted kappa for each subject
+kappa_results <- bind_rows(
+  apply(matrix(1:120), 1, function(x){
+  temp <- cohen.kappa(data %>% dplyr::filter(subject==x) %>% dplyr::select(rater1, rater2))
+  data.frame(subject=x, weighted.kappa = temp$weighted.kappa, variance=temp$var.weighted)
+}))
+  
+# Perform meta-analysis
+meta_analysis <- rma(yi = kappa_results$weighted.kappa, vi = kappa_results$variance, method = "REML")
+summary(meta_analysis)
+```

@@ -1,0 +1,473 @@
+---
+title: "Inquiry in 18 subjects"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+1.  Confirm working in Subjects on Vh:Cd
+
+```{r}
+SUBJIDs <-c(
+  "04002-001",
+  "04002-002",
+  "04002-003",
+  "28004-001",
+  "42001-002",
+  "57005-002",
+  "58002-007",
+  "58026-002",
+  "58026-003",
+  "58031-002",
+  "58041-004",
+  "58059-009",
+  "58060-010",
+  "58061-009",
+  "58066-006",
+  "58068-001",
+  "58070-011",
+  "58072-001")
+```
+
+```{r}
+my.path <- "C:\\Users\\eri7441\\OneDrive - Takeda\\Documents - MARCS-Validation-Data\\DA\\Output\\Single Timepoint Association\\2025-02-20 TAK-062-2001 GC"
+
+data.in <- read_csv(path(my.path, "8 analysis.data.in-ML-BVA.csv"))
+data.in <- data.in %>%
+  dplyr::select(
+    "STUDYID",
+    "SITE",
+    "SUBJID",
+    "VISIT",
+    "ARM",
+    "BVA",
+    "Tertile1_Max",
+    "Tertile2_Mean",
+    "Tertile2_Max",
+    "Tertile3_Mean",
+    "Tertile3_Max",
+    "All_Mean",
+    "All_Max",
+    "Retest.Flag",
+    "READER",
+    "First5Percent_Mean"
+  )
+
+data.in <- data.in %>% dplyr::filter(VISIT != "VISIT 5 - Week 12")
+data.in <- data.in %>% dplyr::filter(SUBJID %in% SUBJIDs)
+
+
+my.path2 <- "C:\\Users\\eri7441\\OneDrive - Takeda\\Documents - MARCS-Validation-Data\\DA\\Input\\TAK-062-2001\\INVICRO_DATA_TRANSFER_HUMAN_REENA_02-21-2025"
+
+# List of CSV files matching the pattern "Metrics"
+file_list <- list.files(my.path2, pattern = "Metrics.*\\.csv$", full.names = TRUE)
+
+# Read and combine all CSV files
+combined_data <- bind_rows(lapply(file_list, read_csv)) 
+
+
+combined_data <- combined_data %>%
+  dplyr::select(
+    "SubjectID",
+    "Timepoint",
+    "Time",
+    "Reader",
+    "All_Mean",
+    "All_Max",
+    "Tertile1_Mean",
+    "Tertile1_Max",
+    "Tertile2_Mean",
+    "Tertile2_Max",
+    "Tertile3_Mean",
+    "Tertile3_Max"
+  ) %>% dplyr::rename(SUBJID = SubjectID, VISIT = Timepoint, READER = Reader, BVA=Tertile1_Mean) %>% 
+  dplyr::select(-Time)
+
+combined_data <- combined_data %>% left_join(data.in %>% dplyr::select(SUBJID, ARM) %>% dplyr::distinct())
+
+summary.stats <- bind_rows(data.in, combined_data) %>%
+  group_by(VISIT, READER, ARM ) %>%
+  dplyr::summarize(
+    n = n(),
+    mean.BVA = mean(BVA, na.rm = TRUE),  # na.rm = TRUE to handle missing values
+    sd.BVA = sd(BVA, na.rm = TRUE)
+  ) %>%
+  gt() %>%
+  tab_header(title = "Summary of BVA by Visit and Arm for 18 Selected Subjects") %>%
+  fmt_number(columns = c(mean.BVA, sd.BVA), decimals = 2)
+  
+
+summary.stats
+```
+
+```{r}
+bind_rows(data.in,combined_data) %>%
+  dplyr::select(SUBJID, ARM, VISIT, BVA, READER) %>%
+  dplyr::mutate(VISIT = as.numeric(as.factor(VISIT)), SR = paste(SUBJID, READER)) %>%
+  ggplot(aes(x = VISIT, y = BVA, shape = ARM, group = READER, color=READER)) +
+  geom_point(position = position_dodge(width = 0.2), size = 2) + # Add jitter to points
+  geom_line(position = position_dodge(width = 0.2)) + # Adjust dodge width for lines if needed
+  scale_x_continuous(breaks=1:3, labels=paste("VISIT", c(-4, 12, 24)))+
+  labs(title = "BVA by Visit and Arm for 18 selected Subjects",
+       x = "Visit",
+       y = "BVA") + facet_wrap(~SUBJID)+theme(legend.position = "bottom")
+
+bind_rows(data.in,combined_data) %>%
+  dplyr::select(SUBJID, ARM, VISIT, All_Mean , READER) %>%
+  dplyr::mutate(VISIT = as.numeric(as.factor(VISIT)), SR = paste(SUBJID, READER)) %>%
+  ggplot(aes(x = VISIT, y = All_Mean , shape = ARM, group = READER, color=READER)) +
+  geom_point(position = position_dodge(width = 0.2), size = 2) + # Add jitter to points
+  geom_line(position = position_dodge(width = 0.2)) + # Adjust dodge width for lines if needed
+  scale_x_continuous(breaks=1:3, labels=paste("VISIT", c(-4, 12, 24)))+
+  labs(title = "All_Mean  by Visit and Arm for 18 selected Subjects",
+       x = "Visit",
+       y = "All_Mean ") + facet_wrap(~SUBJID)+theme(legend.position = "bottom")
+```
+
+```{r}
+bind_rows(data.in,combined_data) %>%
+  dplyr::select(SUBJID, ARM, VISIT, BVA, READER) %>%
+  pivot_wider(id_cols=c(SUBJID, ARM, VISIT), values_from = BVA, names_from = READER) %>%
+  dplyr::mutate(diff=MLV21_RetrainAll - rsidhu) %>% ggplot(aes(x=diff))+geom_density()
+
+p1 <- bind_rows(data.in,combined_data) %>%
+  dplyr::select(SUBJID, ARM, VISIT, BVA, READER) %>%
+  pivot_wider(id_cols=c(SUBJID, ARM, VISIT), values_from = BVA, names_from = READER) %>%
+  dplyr::mutate(abs.diff=abs(MLV21_RetrainAll - rsidhu)) %>% ggplot(aes(x=abs.diff))+stat_ecdf()+
+  scale_x_continuous(breaks=seq(-1,1,0.1), limits=c(0,2))+
+  scale_y_continuous(breaks=seq(0,1,0.1))+
+  geom_vline(xintercept = c(0, .25, .5, .75, 1), linetype="dashed", color = "red")+
+  labs(title="ECDF of Absolute Differences between ML and Human BVA", x="Absolute Difference",
+       subtitle="Tak-062",
+       y="Cumulative Probability")
+```
+
+```{r}
+ML.Shef <- read_csv("C:\\Users\\eri7441\\OneDrive - Takeda\\Documents - MARCS-Validation-Data\\Data_Analyses\\Output\\Accuracy\\2025-01-31 Sheffield GC\\6a merged_data.ML.full.csv")
+Human.Shef <- read_csv("C:\\Users\\eri7441\\OneDrive - Takeda\\Documents - MARCS-Validation-Data\\Data_Analyses\\Output\\Accuracy\\2025-01-31 Sheffield GC\\6b merged_data.Human.full.csv")
+
+bind_rows(ML.Shef, Human.Shef) %>%
+  dplyr::rename(BVA=Tertile1_Mean) %>%
+  dplyr::select(SUBJID, ARM, VISIT, BVA, READER) %>%
+  pivot_wider(id_cols=c(SUBJID, ARM, VISIT), values_from = BVA, names_from = READER) %>%
+  dplyr::mutate(diff1=abs(MLV22 - RS),
+                diff2=abs(MLV22 - MM),
+                diff3=abs(MLV22 - SZ),
+                diff.avg=abs(MLV22-HumanAve)) %>% 
+  pivot_longer(cols=c(diff1, diff2, diff3, diff.avg), names_to="Reader", values_to="diff") %>%
+  ggplot(aes(x=diff, color=Reader))+geom_density()
+
+p2 <- bind_rows(ML.Shef, Human.Shef) %>%
+  dplyr::rename(BVA=Tertile1_Mean) %>%
+  dplyr::select(SUBJID, ARM, VISIT, BVA, READER) %>%
+  pivot_wider(id_cols=c(SUBJID, ARM, VISIT), values_from = BVA, names_from = READER) %>%
+  dplyr::mutate(diff1=abs(MLV22 - RS),
+                diff2=abs(MLV22 - MM),
+                diff3=abs(MLV22 - SZ),
+                diff.avg=abs(MLV22-HumanAve)) %>% 
+  pivot_longer(cols=c(diff1, diff2, diff3, diff.avg), names_to="Reader", values_to="diff") %>%
+  ggplot(aes(x=diff, color=Reader))+stat_ecdf()+
+  scale_x_continuous(breaks=seq(-1,1,0.1), limits=c(0,2))+
+  scale_y_continuous(breaks=seq(0,1,0.1))+
+  geom_vline(xintercept = c(0, .25, .5, .75, 1), linetype="dashed", color = "red") +
+  labs(title="ECDF of Absolute Differences between ML and Human BVA", x="Absolute Difference",
+       subtitle="Sheffield Data",
+       y="Cumulative Probability")
+
+grid.arrange(p1,p2+theme(legend.position = "bottom"),ncol=1, heights=c(.4,.6))
+```
+
+2.  Plot ML vs. Human on BVA along lines of Deming Regression
+
+```{r}
+x <- combined_data %>% arrange(SUBJID, VISIT) %>% dplyr::pull(BVA)
+y <- data.in %>% arrange(SUBJID, VISIT) %>% dplyr::pull(BVA)
+
+temp.data <- data.frame(
+    `Expert panel` = x,
+    `Reader` = y,
+    reader_type = reader_type,
+    this_endpoint = this_endpoint)
+
+deming <- mcr::mcreg(
+    x,
+    y,
+    error.ratio = 1,
+    method.reg = "Deming",
+    method.ci = "analytical",
+    mref.name = "Expert Panel",
+    mtest.name = reader_type,
+    na.rm = TRUE
+  )
+
+  deming.report <- data.frame(coef(deming)) %>% mutate(
+    Statistic = EST / SE,
+    p = 2 * pt(abs(Statistic), df = length(x) - 2, lower.tail = FALSE),
+    Endpoint = this_endpoint,
+    reader_type = reader_type
+  )
+  deming.report <- deming.report %>%
+    mutate(Term = rownames(.)) %>%
+    dplyr::select(Term, Endpoint, reader_type, everything()) %>%
+    dplyr::rename(LCL = LCI, UCL = UCI)
+
+  # Linearity check --------------------
+  # Polynomial fit
+  x2 <- x^2
+  x3 <- x^3
+  cubic.fit <- lm(y ~ x + x2 + x3)
+  cubic.summary <- tidy(summary(cubic.fit))
+  cubic.check <- cubic.summary$p.value[4] > .05
+
+  quadratic.fit <- lm(y ~ x + x2)
+  quadratic.summary <- tidy(summary(quadratic.fit))
+  quad.check <- quadratic.summary$p.value[3] > .05
+
+  Linearity.check <- data.frame(
+    Check = c(
+      "Insignificant Cubic Term",
+      "Insignificant Quadratic Term",
+      "Linearity Intercept Check",
+      "Linearity Slope Check",
+      "Linearity Check"
+    ),
+    Value = c(
+      cubic.check,
+      quad.check,
+      abs(deming.report$EST[1]) < 0.5,
+      deming.report$EST[2] > 0.8 & deming.report$EST[2] < 1.25,
+      quad.check &
+        cubic.check &
+        abs(deming.report$EST[1]) < 0.5 &
+        (deming.report$EST[2] > 0.8 & deming.report$EST[2] < 1.25)
+    ),
+    Endpoint = this_endpoint,
+    reader_type = reader_type
+  )
+
+  # Truth panel------------------
+  truth.panel.CI <- data.frame(x = x, y = y, diff = y - x) %>%
+    dplyr::summarize(
+      `Estimate` = mean(diff),
+      `SE` = sd(diff) / sqrt(n()),
+      n = n(),
+      LCL = mean(diff) - qt(p = .975, df = n() - 1) * sd(diff) / sqrt(n()),
+      UCL = mean(diff) + qt(p = .975, df = n() - 1) * sd(diff) / sqrt(n()),
+      Endpoint = this_endpoint,
+      reader_type = reader_type
+    ) %>%
+    dplyr::mutate(metric = "Paired Differences") %>%
+    dplyr::select(metric, Endpoint, reader_type, everything())
+
+  coverage.prob <- data.frame(x = x, y = y, diff = y - x) %>%
+    dplyr::summarize(n = n(), Estimate = mean(abs(diff) < .5)) %>%
+    dplyr::mutate(
+      SE = sqrt(Estimate * (1 - Estimate) / n),
+      LCL = Estimate - 1.96 * sqrt(Estimate * (1 - Estimate) / n),
+      UCL = Estimate + 1.96 * sqrt(Estimate * (1 - Estimate) / n),
+      Endpoint = this_endpoint,
+      reader_type = reader_type
+    ) %>%
+    dplyr::mutate(metric = "Coverage Probability") %>%
+    dplyr::select(metric, Endpoint, reader_type, everything())
+
+
+deming.out <-  list(
+    data = temp.data,
+    deming.report = deming.report,
+    Linearity.check = Linearity.check,
+    truth.panel.CI = truth.panel.CI,
+    cubic.fit = cubic.fit,
+    quadratic.fit = quadratic.fit,
+    CIs = bind_rows(truth.panel.CI, coverage.prob)
+  )
+
+source(path("C:\\ForGit\\MARCS\\Analytical-Validation\\Accuracy\\functions", "output-generation.R"))
+
+deming_plot(list(deming.out))
+deming_regression_report(list(deming.out))
+deming_bias_linearity_check(list(deming.out))
+# coverage probabilty is the probability that the absolute difference between a measurement and ground truth value being less than 0.5 will be provided.
+report_truth_coverage_CIs(list(deming.out))
+
+```
+
+3.  Plot Human and ML Curves
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(parallel)
+library(data.table)
+
+# Define the path to your directory
+my.path <- "C:\\Users\\eri7441\\OneDrive - Takeda\\Documents - MARCS-Validation-Data\\Data_Analyses\\Input\\TAK-062-2001\\INVICRO_DATA_TRANSFER_02-07-2025 cum"
+
+# Define a vector of valid SUBJIDs
+valid_SUBJIDs <- SUBJIDs  # Assuming SUBJIDs is predefined
+
+# Get a list of files that match the pattern "Curves"
+files <- dir(path = my.path, pattern = "Curves", full.names = TRUE)
+
+# Setup parallel backend to use multiple processors
+no_cores <- detectCores() - 1
+cl <- makeCluster(no_cores)
+
+# Export valid_SUBJIDs to cluster nodes
+clusterExport(cl, varlist = c("valid_SUBJIDs"))
+
+# Function to process each file
+process_file <- function(file_path) {
+  library(data.table)  # Load data.table in each worker
+  library(dplyr)
+  library(tidyr)
+  
+  # Extract file name
+  file_name <- basename(file_path)
+  
+  # Extract the visit information using regex
+  visit_info <- sub("^\\d+-\\d+-(VISIT \\d+ - Week -?\\d+)_.*\\.csv$", "\\1", file_name)
+  
+  # Read the csv file
+  temp <- fread(file_path)  # fread is faster
+  temp <- as.data.frame(temp)
+  
+  # Check if any SUBJID in temp is in valid_SUBJIDs
+  if (any(temp$SubjectID %in% valid_SUBJIDs)) {
+    # Transform the data with pivot_longer
+    temp_long <- temp %>%
+      pivot_longer(cols = -c(1:3)) %>%
+      mutate(VISIT = visit_info)  # Add extracted visit information as a new column
+    
+    return(temp_long)
+  } else {
+    return(NULL)
+  }
+}
+
+# Apply the function to each file in parallel
+results_list <- parLapply(cl, files, process_file)
+
+# Stop the cluster
+stopCluster(cl)
+
+# Combine the results
+final_result <- bind_rows(results_list)
+final_result <- final_result %>% 
+  left_join(data.in %>% dplyr::select(ARM, SUBJID) %>% dplyr::rename(SubjectID = SUBJID) %>% group_by(SubjectID) %>% slice(1))
+
+
+final_result.ML <- final_result %>% group_by(SubjectID) %>%
+  dplyr::mutate(Time = dmy_hms(Time)) %>%
+  dplyr::mutate(order=as.numeric(as.factor(Time))) %>% 
+  dplyr::mutate(name=as.numeric(gsub(name, pattern="P", replacement=""))) %>%
+  dplyr::rename(Position=name) %>% 
+  dplyr::filter(VISIT %in% c("VISIT 2 - Week -4", "VISIT 5 - Week 12", "VISIT 6 - Week 24"))
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(parallel)
+library(data.table)
+
+# Define the path to your directory
+my.path <- "C:\\Users\\eri7441\\OneDrive - Takeda\\Documents - MARCS-Validation-Data\\Data_Analyses\\Input\\TAK-062-2001\\INVICRO_DATA_TRANSFER_HUMAN_REENA_02-21-2025"
+
+# Define a vector of valid SUBJIDs
+valid_SUBJIDs <- SUBJIDs  # Assuming SUBJIDs is predefined
+
+# Get a list of files that match the pattern "Curves"
+files <- dir(path = my.path, pattern = "Curves", full.names = TRUE)
+
+# Setup parallel backend to use multiple processors
+no_cores <- detectCores() - 1
+cl <- makeCluster(no_cores)
+
+# Export valid_SUBJIDs to cluster nodes
+clusterExport(cl, varlist = c("valid_SUBJIDs"))
+
+# Function to process each file
+process_file <- function(file_path) {
+  library(data.table)  # Load data.table in each worker
+  library(dplyr)
+  library(tidyr)
+  
+  # Extract file name
+  file_name <- basename(file_path)
+  
+  # Extract the visit information using regex
+  visit_info <- sub("^\\d+-\\d+-(VISIT \\d+ - Week -?\\d+)_.*\\.csv$", "\\1", file_name)
+  
+  # Read the csv file
+  temp <- fread(file_path)  # fread is faster
+  temp <- as.data.frame(temp)
+  
+  # Check if any SUBJID in temp is in valid_SUBJIDs
+  if (any(temp$SubjectID %in% valid_SUBJIDs)) {
+    # Transform the data with pivot_longer
+    temp_long <- temp %>%
+      pivot_longer(cols = -c(1:3)) %>%
+      mutate(VISIT = visit_info)  # Add extracted visit information as a new column
+    
+    return(temp_long)
+  } else {
+    return(NULL)
+  }
+}
+
+# Apply the function to each file in parallel
+results_list <- parLapply(cl, files, process_file)
+
+# Stop the cluster
+stopCluster(cl)
+
+# Combine the results
+final_result <- bind_rows(results_list)
+final_result <- final_result %>% 
+  left_join(data.in %>% dplyr::select(ARM, SUBJID) %>% dplyr::rename(SubjectID = SUBJID) %>% group_by(SubjectID) %>% slice(1))
+
+
+final_result.Human <- final_result %>% group_by(SubjectID) %>%
+  dplyr::mutate(Time = dmy_hms(Time)) %>%
+  dplyr::mutate(order=as.numeric(as.factor(Time))) %>% 
+  dplyr::mutate(name=as.numeric(gsub(name, pattern="P", replacement=""))) %>%
+  dplyr::rename(Position=name) %>% 
+  dplyr::filter(VISIT %in% c("VISIT 2 - Week -4", "VISIT 5 - Week 12", "VISIT 6 - Week 24"))
+```
+
+```{r}
+final_result <- bind_rows(final_result.ML, final_result.Human)
+
+final_result %>% dplyr::mutate(SubjectID = factor(SubjectID)) %>%
+  dplyr::filter(SubjectID == levels(SubjectID)[1]) %>% 
+  ggplot(aes(x=Position, y=value, color=Reader)) + geom_line(size=.75) + facet_wrap(~factor(VISIT))
+
+
+# Verify that the dataset is not empty
+if (nrow(final_result) > 0) {
+  # Create a PDF for the plots
+  pdf("Patient-curves.pdf", width = 11, height = 8.5)
+
+  # Generate a plot for each SubjectID
+  for (subject_id in unique(final_result$SubjectID)) {
+    # Subset the data for the current SubjectID
+    subject_data <- final_result %>% filter(SubjectID == subject_id)
+    arm <- subject_data$ARM[1]
+    # Create the plot
+   p <- ggplot(subject_data, aes(x = Position, y = value, color = Reader)) +
+      geom_line() +
+      facet_wrap(~ factor(VISIT)) +
+      labs(title=paste("Curves for Subject ID:", subject_id),
+           subtitle=paste("Arm:", arm)) +
+     theme(legend.position = "bottom")+ylim(0,3)
+
+    # Print the plot to the PDF
+    print(p)
+  }
+  dev.off()
+}
+
+
+```

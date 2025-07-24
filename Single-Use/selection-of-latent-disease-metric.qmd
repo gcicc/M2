@@ -1,0 +1,267 @@
+---
+title: "Selection of Latent Disease Burden Metric"
+format: 
+  pdf:
+     fig-numbering: FALSE
+     include-in-header:  
+        - text: |
+            \usepackage{pdflscape}
+toc: TRUE
+number-sections: TRUE
+params:
+  study: "a study"
+  repo_clone: "directory where the clone is"
+  input_dir: "directory for the input"
+  output_dir: "directory for the output"
+execute: 
+  echo: false
+  message: false
+  warning: false
+  tbl-cap-location: top
+editor: visual
+---
+
+```{r notes-and-reminders, echo=FALSE}
+# render with printcode: TRUE will result in webshot2::webshot error
+# render with printcode: FALSE will result in pdf
+# To render graphics separately run all code chunks
+```
+
+```{r packages-and-source}
+# Andy this bit overwrites what is found in run-one-off.R
+study <- params$study
+repo_clone <- params$repo_clone
+input_dir <- params$input_dir
+output_dir <- params$output_dir
+source(paste0(repo_clone,"/Shared-Content/preamble.R"))
+source(paste0(repo_clone,"/Shared-Content/IRT-models.R"))
+table_path <- path(output_dir,"tables")
+dir.create(table_path)
+figure_path <- path(output_dir,"figures")
+dir.create(figure_path)
+```
+
+## Analysis Inputs
+
+```{r ETL}
+if (study=="TAK-062-2001") {
+  demog_df <- demog_062_2001_etl()
+  histology_df <- histology_062_2001_etl()
+  symptoms_df <- symptoms_062_2001_etl()  
+  AMR_df <- vce_062_2001_etl()$AMR # I am getting ARM by running subsets of this function now - not ideal
+} else {
+  print("Logic error: unsupported study")
+}
+
+
+# all.equal(as.numeric(histology_df$VHCD), as.numeric(working.df$VHCD))
+# all.equal(as.numeric(histology_df$IELCOUNT), as.numeric(working.df$IEL))
+# all.equal(as.numeric(symptoms_df$GISS), as.numeric(working.df$GISS))
+# 
+# hist.symp <- histology_df %>% left_join(symptoms_df) 
+# hist.symp$VHCD == working.df$VHCD
+# hist.symp$IELCOUNT == working.df$IEL
+# hist.symp$GISS == working.df$GISS
+```
+
+## Derived data
+
+```{r}
+working.df <- histology_df %>% left_join(symptoms_df, by=c("STUDYID",  "SITE",     "SUBJID",   "OBSDATE",  "VISIT"))
+
+lbl <- c("Study Identifier",
+                       "Unique Subject Identifier",
+                       "Subject Identifier for the Study",
+                       "Study Site Identifier",
+                       "Analysis Visit", 'Villus Height/Crypt Depth', 'Intraepithelial Lymphocytes/Enterocytes', 'GI Severity Score')
+labelled::var_label(working.df) <- split(lbl,names(working.df))
+```
+
+```{r}
+# 228 drops to 201
+working.df.etl <- histology_df %>% left_join(symptoms_df) %>% 
+  dplyr::filter(is.na(VHCD) == FALSE, is.na(GISS) == FALSE, is.na(IELCOUNT) == FALSE)
+
+bc <- boxcox(1/working.df.etl$VHCD ~ 1)
+lambda <- bc$x[which.max(bc$y)]
+working.df.etl$CDVH.bc <- ((1/working.df.etl$VHCD)^lambda - 1) / lambda
+
+# This will hold scaled and centered variables
+working.df.IRT <- working.df.etl %>% 
+  dplyr::filter(is.na(VHCD) == FALSE, is.na(GISS) == FALSE, is.na(IELCOUNT) == FALSE) %>% 
+  mutate(VHCD.neg = -VHCD) %>%
+  mutate(CDVH = 1/VHCD) %>%
+  mutate(log.CDVH = log(CDVH)) %>%
+  mutate(VHCD = (VHCD - mean(VHCD)) / sd(VHCD),
+         VHCD.neg = (VHCD.neg - mean(VHCD.neg)) / sd(VHCD.neg),
+         CDVH = (CDVH - mean(CDVH)) / sd(CDVH),
+         CDVH.bc = (CDVH.bc - mean(CDVH.bc)) / sd(CDVH.bc),
+         log.CDVH = (log.CDVH - mean(log.CDVH)) / sd(log.CDVH),
+         IELCOUNT  = (IELCOUNT - mean(IELCOUNT)) / sd(IELCOUNT),
+         GISS = (GISS - mean(GISS)) / sd(GISS))
+```
+
+```{r}
+hist(working.df.IRT$VHCD, breaks=50) # Moundshaped
+hist(working.df.IRT$CDVH, breaks=50) # Right skewed with trailing outliers
+hist(working.df.IRT$log.CDVH, breaks=50) # Still right skewed
+hist(working.df.IRT$CDVH.bc, breaks=50) # No advantage over VHCD
+```
+
+### IRT Analysis
+
+```{r}
+run.IRT <- function(df){
+  common.alpha.model.out <- common.alpha.model(data.in = df)
+PostEst.out.common <- PosteriorEstimates(
+  grid = seq(-3, 5, .1),
+  dat = df,
+  I = 3,
+  indicator = "C",
+  lin = "lin",
+  parmatrest = common.alpha.model.out$parmatrix,
+  stdest = common.alpha.model.out$stdmixt
+)
+df$esttheta <- PostEst.out.common$esttheta
+df
+}
+
+
+# box-cox transformation
+
+IRT.VHCD.neg <- run.IRT(df=working.df.IRT %>% dplyr::select(SUBJID, VHCD.neg, IELCOUNT, GISS))
+IRT.CHVD <- run.IRT(df=working.df.IRT %>% dplyr::select(SUBJID, CDVH, IELCOUNT, GISS))
+IRT.log.CHVD <- run.IRT(df=working.df.IRT %>% dplyr::select(SUBJID, log.CDVH, IELCOUNT, GISS))
+IRT.CHVD.bc <- run.IRT(df=working.df.IRT %>% dplyr::select(SUBJID, CDVH.bc, IELCOUNT, GISS))
+
+collect <- working.df.etl %>% 
+  cbind(IRT.VHCD.neg = IRT.VHCD.neg$esttheta) %>%
+  cbind(IRT.CHVD = IRT.CHVD$esttheta) %>%
+  cbind(IRT.log.CHVD = IRT.log.CHVD$esttheta) %>%
+  cbind(IRT.CHVD.bc = IRT.CHVD.bc$esttheta)
+
+# The IRT metrics are well correlated with each other
+collect %>% ggpairs(columns = c(6:8, 10:13))
+# collect %>% ggpairs(columns=6:9)
+```
+
+### PCA analysis
+
+```{r}
+require(psych)
+# KMO(cor(working.df.IRT %>% dplyr::select(VHCD, IELCOUNT, GISS)))
+# # This works out
+# cortest.bartlett(cor(working.df.IRT %>% dplyr::select(VHCD, IELCOUNT, GISS)), n = nrow(working.df.IRT))
+
+# These result in loadings that differ by a negative signs in some places
+# the principal component scores are identical
+run.pca <- function(df=working.df.IRT %>% dplyr::select(VHCD.neg, IELCOUNT, GISS)){
+  pca_result.1 <- prcomp(x=as.matrix(df))
+pca_result.1$x <- data.frame(pca_result.1$x ) %>% dplyr::mutate(PCA.DB = PC1 + PC2)
+return(pca_result.1)
+}
+
+# These all return comparable results
+PCA.VHCD <- run.pca(df=working.df.IRT %>% dplyr::select(VHCD, IELCOUNT, GISS))
+PCA.VHCD.neg <- run.pca(df=working.df.IRT %>% dplyr::select(VHCD.neg, IELCOUNT, GISS))
+PCA.CHVD <- run.pca(df=working.df.IRT %>% dplyr::select(CDVH, IELCOUNT, GISS))
+PCA.log.CHVD <- run.pca(df=working.df.IRT %>% dplyr::select(log.CDVH, IELCOUNT, GISS))
+PCA.CHVD.bc <- run.pca(df=working.df.IRT %>% dplyr::select(CDVH.bc, IELCOUNT, GISS))
+
+
+# PCA are extremely well correlated with each other
+collect <- collect %>% 
+  cbind(PCA.VHCD = -PCA.VHCD$x$PCA.DB) %>%
+  cbind(PCA.VHCD.neg = -PCA.VHCD.neg$x$PCA.DB) %>%
+  cbind(PCA.CHVD = -PCA.CHVD$x$PCA.DB) %>%
+  cbind(PCA.log.CHVD = -PCA.log.CHVD$x$PCA.DB) %>%
+  cbind(PCA.CHVD.bc = -PCA.CHVD.bc$x$PCA.DB)
+
+collect %>% ggpairs(columns = c(6:8, 14:18))
+```
+
+### Comparison
+
+```{r}
+# Final conclusion: contrast IRT results based on VHCD.neg and PCA based on VHCD
+collect.distill <- collect %>% dplyr::select(1:8, 10, 14) %>% 
+  dplyr::rename(IRT.DB = IRT.VHCD.neg,
+                PCA.DB = PCA.VHCD)
+IRT.PCA.compare <- collect.distill %>% ggpairs(columns=c(6:10), title="Comparison of IRT and PCA-based disease burden")
+```
+
+```{r}
+
+# quantile(collect$PCA.DB, .33)
+collect.distill <- collect.distill %>% dplyr::mutate(PCA.group = case_when(
+    PCA.DB < quantile(PCA.DB, .33) ~ "Low",
+    PCA.DB > quantile(PCA.DB, .67) ~ "High",
+    .default = "Moderate")) %>%
+ # mutate(esttheta = PostEst.out.common.3$esttheta) %>%
+  mutate(IRT.group = factor(case_when(
+    IRT.DB < quantile(IRT.DB, .33) ~ "Low",
+    IRT.DB > quantile(IRT.DB, .67) ~ "High",
+    .default = "Moderate"
+  ), c("Low", "Moderate", "High"))) 
+
+collect.distill$PCA.group <- factor(collect.distill$PCA.group, c("Low", "Moderate", "High"))
+collect.distill$IRT.group <- factor(collect.distill$IRT.group, c("Low", "Moderate", "High"))
+
+collect.distill%>% ggpairs(columns = c(6:8, 10), aes(color =PCA.group, alpha=.5), title="PCA-based disease burden: lower, mid and upper thirds of the Disease Burdent Scores") +
+  scale_color_manual(values = c("green", "blue", "red"))+
+  scale_fill_manual(values = c("green", "blue", "red"))
+```
+
+### Exercise adding 8 edge cases to explore PCA disease burden
+
+```{r eval=FALSE}
+temp <- histology_df %>% left_join(symptoms_df) %>% 
+  dplyr::filter(is.na(VHCD) == FALSE, is.na(GISS) == FALSE, is.na(IELCOUNT) == FALSE)
+t.VHCD <- as.vector(quantile(temp$VHCD, probs = c(.05,  .95)))
+t.IELCOUNT <- as.vector(quantile(temp$IELCOUNT, probs = c(.05,  .95)))
+t.GISS <- as.vector(quantile(temp$GISS, probs = c(.05,  .95)))
+expand.grid(VHCD = t.VHCD, IELCOUNT = t.IELCOUNT, GISS = t.GISS)
+
+temp <- rbind(temp %>% dplyr::select(VHCD, IELCOUNT, GISS), expand.grid(VHCD = t.VHCD, IELCOUNT = t.IELCOUNT, GISS = t.GISS))
+temp2 <- temp %>% 
+  dplyr::mutate(VHCD = (VHCD - mean(VHCD)) / sd(VHCD),
+                IELCOUNT  = (IELCOUNT - mean(IELCOUNT)) / sd(IELCOUNT),
+                GISS = (GISS - mean(GISS)) / sd(GISS))
+         
+         
+pca_result.test <- prcomp(x=as.matrix(temp2))
+pca_result.test$x <- data.frame(pca_result.test$x ) %>% dplyr::mutate(PCA.test = PC1 + PC2)
+
+temp %>% cbind(PCA.DB =-pca_result.test$x$PCA.test) %>% slice(202:209) %>% arrange(PCA.DB) %>% 
+  gt() %>% gt::fmt_number(columns = 1:4, decimals = 3)
+
+
+```
+
+### Check correlation structure at each visit
+
+```{r}
+working.df.etl %>% filter(VISIT == "Baseline") %>% dplyr::select(VHCD, IELCOUNT, GISS) %>% ggpairs(title="Baseline")
+
+working.df.etl %>% filter(VISIT == "Week 24") %>% dplyr::select(VHCD, IELCOUNT, GISS) %>% ggpairs(title="Week 24")
+```
+
+### Disease burdent inspired by PCA
+
+Here we simply a linear combination inspired by PCA
+
+```{r}
+working.df.etl$DB <- as.numeric(-.7*scale(working.df.etl$VHCD)+.7*scale(working.df.etl$IELCOUNT) + scale(working.df.etl$GISS))
+
+working.df.etl %>% ggpairs(columns = 6:9)
+```
+```{r}
+eigen(working.df.etl %>% filter(VISIT == "Baseline") %>% dplyr::select(VHCD, IELCOUNT, GISS) %>% cor())
+-1*eigen(working.df.etl %>% filter(VISIT == "Baseline") %>% dplyr::select(VHCD, IELCOUNT, GISS) %>% cor())$vectors[,1] +
+eigen(working.df.etl %>% filter(VISIT == "Baseline") %>% dplyr::select(VHCD, IELCOUNT, GISS) %>% cor())$vectors[,2]
+
+
+-eigen(working.df.etl %>% filter(VISIT == "Week 24") %>% dplyr::select(VHCD, IELCOUNT, GISS) %>% cor())$vectors[,1] +
+eigen(working.df.etl %>% filter(VISIT == "Week 24") %>% dplyr::select(VHCD, IELCOUNT, GISS) %>% cor())$vectors[,2]
+```
+

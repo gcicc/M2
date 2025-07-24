@@ -1,0 +1,73 @@
+---
+title: "Phase0 and Milan"
+format: html
+editor: visual
+---
+
+## Get data
+
+```{r}
+library(readr)
+require(gtsummary)
+AllMetrics <- read_csv("data/Phase0_and_Milan_Reads_20240717/Phase0_and_Milan_Reads_20240717/Milan_Reads/AllMetrics.csv")
+View(AllMetrics)
+
+AllMetrics %>% dplyr::select(SubjectID, Visit, contains("Tertile1_Mean"), starts_with("All_Mean")) %>% 
+  dplyr::select(-SubjectID) %>% 
+  dplyr::mutate(Visit = ifelse(Visit==1, "Visit 1", "Visit 2")) %>%
+  tbl_summary(by="Visit",
+              statistic = list(all_continuous() ~ "{mean} ({sd})", all_categorical() ~
+    "{n} ({p}%)")) %>%
+  add_difference() %>% 
+  as_gt() %>%
+  tab_header(title = "Table Title", subtitle="Table subtitle") %>% 
+  tab_spanner(columns = 1:2, label = "Visit")
+```
+
+```{r}
+AllMetrics %>% ggplot(aes(x=Tertile1_Mean_MLV22, y = Tertile1_Mean_LE)) + geom_point() + 
+  labs(x="Tertile 1 Mean for MLV22", y="Tertile1 for LE", title="Comparision of Readers",
+       caption=paste("R\U00B2 =", round(summary(lm(All_Mean_MLV22~All_Mean_LE, data=AllMetrics))$r.squared, 4))) +
+  geom_smooth(method='lm', se=FALSE)
+```
+
+```{r}
+
+
+AllMetrics %>% ggplot(aes(x=All_Mean_MLV22, y = All_Mean_LE)) + geom_point() + 
+  labs(x="Entire Bowel Mean for MLV22", y="Entire Bowel for LE", title="Comparision of Readers",
+       caption=paste("R\U00B2 =", round(summary(lm(All_Mean_MLV22~All_Mean_LE, data=AllMetrics))$r.squared, 4))) +
+  geom_smooth(method='lm', se=FALSE)
+```
+
+```{r}
+Curves.LE <- read_csv("data/Phase0_and_Milan_Reads_20240717/Phase0_and_Milan_Reads_20240717/Milan_Reads/LE/Curves.csv")
+Curves.SL <- read_csv("data/Phase0_and_Milan_Reads_20240717/Phase0_and_Milan_Reads_20240717/Phase0_Reads/SL/Curves.csv")
+```
+
+```{r}
+Curves.LE %>% pivot_longer(cols = starts_with("P"), names_to = "Position") %>%
+  mutate(Position=as.numeric(gsub(x=Position,replacement = "", pattern="P"))) %>%
+  ggplot(aes(x=Position, y=value)) + geom_line() + facet_wrap(~SubjectID) + 
+  labs(title= "MARCS BVA Curves by Subject for Reader LE")
+```
+
+```{r}
+Curves.SL %>% pivot_longer(cols = starts_with("P"), names_to = "Position") %>%
+  mutate(Position=as.numeric(gsub(x=Position,replacement = "", pattern="P"))) %>%
+  ggplot(aes(x=Position, y=value)) + geom_line() + facet_wrap(~SubjectID)
+```
+
+```{r}
+Metrics.LE <- read_csv("data/Phase0_and_Milan_Reads_20240717/Phase0_and_Milan_Reads_20240717/Milan_Reads/LE/Metrics.csv")
+Metrics.SL <- read_csv("data/Phase0_and_Milan_Reads_20240717/Phase0_and_Milan_Reads_20240717/Phase0_Reads/SL/Metrics.csv")
+```
+
+```{r}
+ScoredFrames.LE <- read_csv("data/Phase0_and_Milan_Reads_20240717/Phase0_and_Milan_Reads_20240717/Milan_Reads/LE/ScoredFrames.csv")
+ScoredFrames.SL <- read_csv("data/Phase0_and_Milan_Reads_20240717/Phase0_and_Milan_Reads_20240717/Phase0_Reads/SL/ScoredFrames.csv")
+```
+
+```{r}
+Skips <- read_csv("data/Phase0_and_Milan_Reads_20240717/Phase0_and_Milan_Reads_20240717/Milan_Reads/LE/Skips.csv")
+```

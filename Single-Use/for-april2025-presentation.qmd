@@ -1,0 +1,407 @@
+---
+title: "For April Presentation to Franchise"
+format: html
+editor: visual
+---
+
+## Load packages and bring in data
+
+```{r}
+require(readr)
+data.in <- read_csv("C:/Users/eri7441/OneDrive - Takeda/Documents - MARCS-Validation-Data/DA/Output/Single Timepoint Association/2025-03-26 TAK-062-2001 GC/8 analysis.data.in-ML-BVA.csv")
+```
+
+## Process
+
+```{r}
+table(data.in$ARM, useNA="always")
+
+# Subset data to randomized set. 
+data.in <- data.in %>% dplyr::select(c("STUDYID", "SITE", "SUBJID", "ARM", "VISIT", "BVA", "VHCD", "VCIEL", "IELCOUNT", "MO", "qM")) %>%
+  dplyr::filter(ARM %in% c("Placebo", "TAK-062"))
+```
+
+## Histograms of VHCD, BVA, IEL COUNT, VCIEL
+
+```{r}
+# Number of records
+n.records <- sum(!is.na(data.in$VHCD))
+n.subjects <- data.in %>% dplyr::filter(!is.na(VHCD)) %>% dplyr::pull(SUBJID) %>% unique() %>% length()
+
+data.in %>%
+  ggplot(aes(x = VHCD)) +
+  geom_histogram(bins = 9, boundary = 0, fill = "red", color = "white") +
+  labs(title="TAK-062-2001 VH:CD Distribution", subtitle=paste(n.records, "Records from", n.subjects, "subjects"))+
+  scale_x_continuous(limits=c(0, 3.25), breaks=seq(0, 3.25, .25)) 
+```
+
+```{r}
+# Number of records
+n.records <- sum(!is.na(data.in$BVA))
+n.subjects <- data.in %>% dplyr::filter(!is.na(BVA)) %>% dplyr::pull(SUBJID) %>% unique() %>% length()
+
+data.in %>%
+  ggplot(aes(x = BVA)) +
+  geom_histogram(bins = 9, boundary = 0, fill = "red", color = "white") +
+  labs(title = "TAK-062-2001 BVA Distribution", subtitle = paste(n.records, "Records from", n.subjects, "subjects")) +
+  scale_x_continuous( breaks = seq(0, 3.2, 0.4)) +
+  scale_y_continuous( breaks = seq(0, 160, 20))
+
+```
+
+```{r}
+# Number of records
+n.records <- sum(!is.na(data.in$IELCOUNT))
+n.subjects <- data.in %>% dplyr::filter(!is.na(IELCOUNT)) %>% dplyr::pull(SUBJID) %>% unique() %>% length()
+
+data.in %>%
+  ggplot(aes(x = IELCOUNT)) +
+  geom_histogram(bins = 9, boundary = 0, fill = "red", color = "white") +
+  labs(title = "TAK-062-2001 IEL Count Distribution", subtitle = paste(n.records, "Records from", n.subjects, "subjects")) 
+
+```
+
+```{r}
+# Number of records
+n.records <- sum(!is.na(data.in$VCIEL))
+n.subjects <- data.in %>% dplyr::filter(!is.na(BVA)) %>% dplyr::pull(SUBJID) %>% unique() %>% length()
+
+data.in %>%
+  ggplot(aes(x = VCIEL)) +
+  geom_histogram(bins = 9, boundary = 0, fill = "red", color = "white") +
+  labs(title = "TAK-062-2001 VCIEL Distribution", subtitle = paste(n.records, "Records from", n.subjects, "subjects")) +
+  scale_x_continuous( breaks = seq(-5, 4, 0.5))
+
+```
+
+## Compute the following
+
+-   report n, Spearman correlation, p-value of BVA vs
+    -   VHCD, IELCOUNT, VCIEL
+    -   all records
+    -   visit 2
+    -   visit 6
+    -   visit 2 (PBO/TAK)
+
+```{r}
+tidy_corr_test <- function(corr_test_result) {
+  data <- corr_test_result
+  
+  # Extract relevant statistics
+  result <- tibble(
+    correlation = data$r,
+    n = data$n,
+    t_value = data$t,
+    p_value = data$p,
+    p_adjusted = data$p.adj,
+    standard_error = data$se,
+    conf_interval_lower = data$ci$lower,
+    conf_interval_upper = data$ci$upper,
+    method = as.character(data$Call)[4], # Assuming 'method' is the third element in the call
+    adjustment_method = data$adjust,
+    stars = data$stars
+  )
+  
+  return(result %>% dplyr::select(n, correlation, p_value) )
+}
+```
+
+```{r}
+report.corr <- function(data.in = data.in1, e1 = "BVA", e2 = "VHCD") {
+  # Filter out rows with NA values in e1 and e2
+  temp <- data.in %>% dplyr::filter(!is.na(!!sym(e1)) & !is.na(!!sym(e2)))
+  
+  # Perform the correlation test
+  corr_result <- corr.test(temp[[e1]], temp[[e2]], method = "spearman")
+
+  # Tidy the correlation test result and add Stratum
+  tidy_result <- tidy_corr_test(corr_result) %>% mutate(Stratum = temp$Stratum[1])
+
+  return(tidy_result)
+}
+```
+
+```{r}
+data.in1 <- data.in %>% mutate(Stratum="None")
+data.in2 <- data.in %>% dplyr::filter(VISIT=="VISIT 2 - Week -4") %>% mutate(Stratum="Visit 2")
+data.in3 <- data.in %>% dplyr::filter(VISIT=="VISIT 6 - Week 24") %>% mutate(Stratum="Visit 6")
+data.in4 <- data.in %>% dplyr::filter(VISIT=="VISIT 6 - Week 24" & ARM=="Placebo") %>% mutate(Stratum="Visit 6 PBO")
+data.in5 <- data.in %>% dplyr::filter(VISIT=="VISIT 6 - Week 24" & ARM=="TAK-062") %>% mutate(Stratum="Visit 6 TAK")
+
+```
+
+## Table for BVA and VHCD
+
+```{r}
+bind_rows(report.corr(data.in1),
+report.corr(data.in2),
+report.corr(data.in3),
+report.corr(data.in4),
+report.corr(data.in5)) %>% dplyr::select(Stratum, n, correlation, p_value) %>%
+  gt() %>%
+  tab_header(title = "Correlation of BVA with VHCD") %>%
+  cols_label(Stratum = "Stratum", n = "n", correlation = "Correlation", p_value = "p-value") %>%
+  fmt_number(columns= c(correlation, p_value), decimals = 2)
+```
+
+## Table for BVA and IELCOUNT
+
+```{r}
+bind_rows(report.corr(data.in1, e2 = "IELCOUNT"),
+report.corr(data.in2, e2 = "IELCOUNT"),
+report.corr(data.in3, e2 = "IELCOUNT"),
+report.corr(data.in4, e2 = "IELCOUNT"),
+report.corr(data.in5, e2 = "IELCOUNT")) %>% dplyr::select(Stratum, n, correlation, p_value) %>%
+  gt() %>%
+  tab_header(title = "Correlation of BVA with IEL Count") %>%
+  cols_label(Stratum = "Stratum", n = "n", correlation = "Correlation", p_value = "p-value") %>%
+  fmt_number(columns= c(correlation, p_value), decimals = 2)
+```
+
+## Table for BVA and VCIEL
+
+```{r}
+bind_rows(report.corr(data.in1, e2 = "VCIEL"),
+report.corr(data.in2, e2 = "VCIEL"),
+report.corr(data.in3, e2 = "VCIEL"),
+report.corr(data.in4, e2 = "VCIEL"),
+report.corr(data.in5, e2 = "VCIEL")) %>% dplyr::select(Stratum, n, correlation, p_value) %>%
+  gt() %>%
+  tab_header(title = "Correlation of BVA with VCIEL") %>%
+  cols_label(Stratum = "Stratum", n = "n", correlation = "Correlation", p_value = "p-value") %>%
+  fmt_number(columns= c(correlation, p_value), decimals = 2)
+```
+
+
+-   All records compute correlation by Qmarsh stratum
+    -   Visit 2
+    -   Visit 6
+
+```{r}
+data.in <- data.in %>% dplyr::mutate(qM.G = case_when(qM %in%  c("M0", "M1", "M2") ~ "QMarsh 0-2",
+                                                        qM == c("M3a") ~ "Qmarsh 3a",
+                                                        qM %in% c("M3b","M3c") ~ "Qmarsh 3b/3c"))
+
+data.in.0 <- data.in %>% dplyr::filter(!is.na(qM)) %>% dplyr::filter(qM.G=="QMarsh 0-2")
+data.in.1 <- data.in %>% dplyr::filter(!is.na(qM)) %>% dplyr::filter(qM.G=="Qmarsh 3a")
+data.in.2 <- data.in %>% dplyr::filter(!is.na(qM)) %>% dplyr::filter(qM.G=="Qmarsh 3b/3c")
+
+```
+
+```{r}
+bind_rows(
+report.corr(data.in.0) %>% dplyr::mutate(Stratum="QMarsh 0-2"),
+report.corr(data.in.1) %>% dplyr::mutate(Stratum="Qmarsh 3a"),
+report.corr(data.in.2) %>% dplyr::mutate(Stratum="Qmarsh 3b/3c")) %>%
+    gt() %>%
+  tab_header(title = "Correlation of BVA with VHCD - both visits") %>%
+  cols_label(Stratum = "Stratum", n = "n", correlation = "Correlation", p_value = "p-value") %>%
+  fmt_number(columns= c(correlation, p_value), decimals = 2)
+
+bind_rows(
+report.corr(data.in.0 %>% dplyr::filter(VISIT == "VISIT 2 - Week -4")) %>% dplyr::mutate(Stratum="QMarsh 0-2"),
+report.corr(data.in.1%>% dplyr::filter(VISIT == "VISIT 2 - Week -4")) %>% dplyr::mutate(Stratum="Qmarsh 3a"),
+report.corr(data.in.2%>% dplyr::filter(VISIT == "VISIT 2 - Week -4")) %>% dplyr::mutate(Stratum="Qmarsh 3b/3c")) %>%
+    gt() %>%
+  tab_header(title = "Correlation of BVA with VHCD", subtitle="Visit 2") %>%
+  cols_label(Stratum = "Stratum", n = "n", correlation = "Correlation", p_value = "p-value") %>%
+  fmt_number(columns= c(correlation, p_value), decimals = 2)
+
+bind_rows(
+report.corr(data.in.0 %>% dplyr::filter(VISIT == "VISIT 6 - Week 24")) %>% dplyr::mutate(Stratum="QMarsh 0-2"),
+report.corr(data.in.1%>% dplyr::filter(VISIT == "VISIT 6 - Week 24")) %>% dplyr::mutate(Stratum="Qmarsh 3a"),
+report.corr(data.in.2%>% dplyr::filter(VISIT == "VISIT 6 - Week 24")) %>% dplyr::mutate(Stratum="Qmarsh 3b/3c")) %>%
+    gt() %>%
+  tab_header(title = "Correlation of BVA with VHCD", subtitle="Visit 6") %>%
+  cols_label(Stratum = "Stratum", n = "n", correlation = "Correlation", p_value = "p-value") %>%
+  fmt_number(columns= c(correlation, p_value), decimals = 2)
+
+```
+
+```{r}
+bind_rows(
+report.corr(data.in.0, e2="IELCOUNT") %>% dplyr::mutate(Stratum="QMarsh 0-2"),
+report.corr(data.in.1, e2="IELCOUNT") %>% dplyr::mutate(Stratum="Qmarsh 3a"),
+report.corr(data.in.2, e2="IELCOUNT") %>% dplyr::mutate(Stratum="Qmarsh 3b/3c")) %>%
+    gt() %>%
+  tab_header(title = "Correlation of BVA with IELCOUNT") %>%
+  cols_label(Stratum = "Stratum", n = "n", correlation = "Correlation", p_value = "p-value") %>%
+  fmt_number(columns= c(correlation, p_value), decimals = 2)
+
+```
+
+```{r}
+bind_rows(
+report.corr(data.in.0, e2="VCIEL") %>% dplyr::mutate(Stratum="Qmarsh 0-2"),
+report.corr(data.in.1, e2="VCIEL") %>% dplyr::mutate(Stratum="Qmarsh 3a"),
+report.corr(data.in.2, e2="VCIEL") %>% dplyr::mutate(Stratum="Qmarsh 3b/3c")) %>%
+    gt() %>%
+  tab_header(title = "Correlation of BVA with VCIEL") %>%
+  cols_label(Stratum = "Stratum", n = "n", correlation = "Correlation", p_value = "p-value") %>%
+  fmt_number(columns= c(correlation, p_value), decimals = 2)
+```
+
+
+## Repeat for MO
+
+
+-   All records compute correlation by Qmarsh stratum
+    -   Visit 2
+    -   Visit 6
+
+```{r}
+data.in <- data.in %>% dplyr::mutate(MO.G = case_when(MO %in%  c("M0", "M1", "M2") ~ "Marsh 0-2",
+                                                        MO == c("M3a") ~ "Marsh 3a",
+                                                        MO %in% c("M3b","M3c") ~ "Marsh 3b/3c"))
+
+data.in.0 <- data.in %>% dplyr::filter(!is.na(MO)) %>% dplyr::filter(MO.G=="Marsh 0-2")
+data.in.1 <- data.in %>% dplyr::filter(!is.na(MO)) %>% dplyr::filter(MO.G=="Marsh 3a")
+data.in.2 <- data.in %>% dplyr::filter(!is.na(MO)) %>% dplyr::filter(MO.G=="Marsh 3b/3c")
+```
+
+```{r}
+bind_rows(
+report.corr(data.in.0) %>% dplyr::mutate(Stratum="Marsh 0-2"),
+report.corr(data.in.1) %>% dplyr::mutate(Stratum="Marsh 3a"),
+report.corr(data.in.2) %>% dplyr::mutate(Stratum="Marsh 3b/3c")) %>%
+    gt() %>%
+  tab_header(title = "Correlation of BVA with VHCD - both visits") %>%
+  cols_label(Stratum = "Stratum", n = "n", correlation = "Correlation", p_value = "p-value") %>%
+  fmt_number(columns= c(correlation, p_value), decimals = 2)
+
+
+bind_rows(
+report.corr(data.in.0 %>% dplyr::filter(VISIT == "VISIT 2 - Week -4")) %>% dplyr::mutate(Stratum="Marsh 0-2"),
+report.corr(data.in.1 %>% dplyr::filter(VISIT == "VISIT 2 - Week -4")) %>% dplyr::mutate(Stratum="Marsh 3a"),
+report.corr(data.in.2 %>% dplyr::filter(VISIT == "VISIT 2 - Week -4")) %>% dplyr::mutate(Stratum="Marsh 3b/3c")) %>%
+    gt() %>%
+  tab_header(title = "Correlation of BVA with VHCD", subtitle="Visit 2") %>%
+  cols_label(Stratum = "Stratum", n = "n", correlation = "Correlation", p_value = "p-value") %>%
+  fmt_number(columns= c(correlation, p_value), decimals = 2)
+
+bind_rows(
+report.corr(data.in.0 %>% dplyr::filter(VISIT == "VISIT 6 - Week 24")) %>% dplyr::mutate(Stratum="Marsh 0-2"),
+report.corr(data.in.1 %>% dplyr::filter(VISIT == "VISIT 6 - Week 24")) %>% dplyr::mutate(Stratum="Marsh 3a"),
+report.corr(data.in.2 %>% dplyr::filter(VISIT == "VISIT 6 - Week 24")) %>% dplyr::mutate(Stratum="Marsh 3b/3c")) %>%
+    gt() %>%
+  tab_header(title = "Correlation of BVA with VHCD", subtitle="Visit 6") %>%
+  cols_label(Stratum = "Stratum", n = "n", correlation = "Correlation", p_value = "p-value") %>%
+  fmt_number(columns= c(correlation, p_value), decimals = 2)
+```
+
+```{r}
+bind_rows(
+report.corr(data.in.0, e2="IELCOUNT") %>% dplyr::mutate(Stratum="Marsh 0-2"),
+report.corr(data.in.1, e2="IELCOUNT") %>% dplyr::mutate(Stratum="Marsh 3a"),
+report.corr(data.in.2, e2="IELCOUNT") %>% dplyr::mutate(Stratum="Marsh 3a/3b")) %>%
+    gt() %>%
+  tab_header(title = "Correlation of BVA with IELCOUNT") %>%
+  cols_label(Stratum = "Stratum", n = "n", correlation = "Correlation", p_value = "p-value") %>%
+  fmt_number(columns= c(correlation, p_value), decimals = 2)
+
+```
+
+```{r}
+bind_rows(
+report.corr(data.in.0, e2="VCIEL") %>% dplyr::mutate(Stratum="Marsh 0-2"),
+report.corr(data.in.1, e2="VCIEL") %>% dplyr::mutate(Stratum="Marsh 3a"),
+report.corr(data.in.2, e2="VCIEL") %>% dplyr::mutate(Stratum="Marsh 3b/3c")) %>%
+    gt() %>%
+  tab_header(title = "Correlation of BVA with VCIEL") %>%
+  cols_label(Stratum = "Stratum", n = "n", correlation = "Correlation", p_value = "p-value") %>%
+  fmt_number(columns= c(correlation, p_value), decimals = 2)
+```
+
+
+## Scatterplots of BVA vs VHCD, IELCOUNT, VCIEL with rugplots
+
+```{r}
+data.in %>% 
+  dplyr::filter(VISIT != "VISIT 5 - Week 12") %>%
+  ggplot(aes(x=BVA, y=VHCD, color=ARM)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_rug() +
+  labs(title="BVA vs VHCD", x="BVA", y="VHCD")+
+  scale_y_continuous(limits=c(0,3), breaks=seq(0,3,.5))+
+  facet_wrap(~VISIT)+theme(legend.position = "bottom")+
+  geom_hline(yintercept = seq(0,3,1), linetype="dashed", color = "red")+
+  geom_vline(xintercept = seq(0,3,1), linetype="dashed", color = "red")
+```
+
+```{r}
+data.in %>%
+  dplyr::filter(VISIT != "VISIT 5 - Week 12") %>%
+  group_by(VISIT, ARM) %>%
+  dplyr::summarize(
+    n = n(),
+    VHCD.mean = mean(VHCD, na.rm = TRUE),
+    BVA.mean = mean(BVA, na.rm = TRUE),
+    VHCD.gt.2 = mean(VHCD > 2, na.rm = TRUE),  # Convert to percentage
+    BVA.lt.1 = mean(BVA < 1, na.rm = TRUE)    # Convert to percentage
+  ) %>%
+  gt() %>%
+  tab_header(title = "Summary of VHCD and BVA by Visit and Arm") %>%
+  cols_label(
+    VISIT = "Visit", ARM = "Arm", n = "n", VHCD.mean = "VHCD Mean",
+    BVA.mean = "BVA Mean", VHCD.gt.2 = "VHCD > 2 (%)", BVA.lt.1 = "BVA < 1 (%)"
+  ) %>%
+  fmt_number(columns = c(VHCD.mean, BVA.mean), decimals = 2) %>%
+  fmt_percent(columns = c(VHCD.gt.2, BVA.lt.1), decimals = 1)  # Format as percentages
+```
+
+```{r}
+vhcd.v2.tak <- data.in %>% dplyr::filter(ARM =="TAK-062", VISIT=="VISIT 2 - Week -4", VHCD < 1.5) %>% dplyr::pull(SUBJID)
+vhcd.v2.pbo <- data.in %>% dplyr::filter(ARM =="Placebo", VISIT=="VISIT 2 - Week -4", VHCD < 1.5) %>% dplyr::pull(SUBJID)
+
+data.in %>% dplyr::filter(SUBJID %in% vhcd.v2.tak) %>% group_by(VISIT) %>%
+  dplyr::summarize(n = n(), VHCD.mean = mean(VHCD, na.rm = TRUE), BVA.mean = mean(BVA, na.rm = TRUE)) %>%
+  gt() %>%
+  tab_header(title = "Summary of VHCD and BVA for TAK-062", subtitle = "Week -4 VHCD < 1.5") %>%
+  cols_label(VISIT = "Visit", n = "n", VHCD.mean = "VHCD Mean", BVA.mean = "BVA Mean") %>%
+  fmt_number(columns = c(VHCD.mean, BVA.mean), decimals = 2)
+
+
+
+data.in %>% dplyr::filter(SUBJID %in% vhcd.v2.pbo) %>% group_by(VISIT) %>%
+  dplyr::summarize(n = n(), VHCD.mean = mean(VHCD, na.rm = TRUE), BVA.mean = mean(BVA, na.rm = TRUE)) %>%
+  gt() %>%
+  tab_header(title = "Summary of VHCD and BVA for Placebo", subtitle = "Week -4 VHCD < 1.5") %>%
+  cols_label(VISIT = "Visit", n = "n", VHCD.mean = "VHCD Mean", BVA.mean = "BVA Mean") %>%
+  fmt_number(columns = c(VHCD.mean, BVA.mean), decimals = 2)
+```
+
+```{r}
+vhcd.v2.tak <- data.in %>% dplyr::filter(ARM =="TAK-062", VISIT=="VISIT 2 - Week -4", VHCD > 2) %>% dplyr::pull(SUBJID)
+vhcd.v2.pbo <- data.in %>% dplyr::filter(ARM =="Placebo", VISIT=="VISIT 2 - Week -4", VHCD > 2) %>% dplyr::pull(SUBJID)
+
+data.in %>% dplyr::filter(SUBJID %in% vhcd.v2.tak) %>% group_by(VISIT) %>%
+  dplyr::summarize(n = n(), VHCD.mean = mean(VHCD, na.rm = TRUE), BVA.mean = mean(BVA, na.rm = TRUE)) %>%
+  gt() %>%
+  tab_header(title = "Summary of VHCD and BVA for TAK-062", subtitle = "Week -4 VHCD > 2") %>%
+  cols_label(VISIT = "Visit", n = "n", VHCD.mean = "VHCD Mean", BVA.mean = "BVA Mean") %>%
+  fmt_number(columns = c(VHCD.mean, BVA.mean), decimals = 2)
+
+
+
+data.in %>% dplyr::filter(SUBJID %in% vhcd.v2.pbo) %>% group_by(VISIT) %>%
+  dplyr::summarize(n = n(), VHCD.mean = mean(VHCD, na.rm = TRUE), BVA.mean = mean(BVA, na.rm = TRUE)) %>%
+  gt() %>%
+  tab_header(title = "Summary of VHCD and BVA for Placebo", subtitle = "Week -4 VHCD > 2") %>%
+  cols_label(VISIT = "Visit", n = "n", VHCD.mean = "VHCD Mean", BVA.mean = "BVA Mean") %>%
+  fmt_number(columns = c(VHCD.mean, BVA.mean), decimals = 2)
+```
+
+```{r}
+data.in2 %>% ggplot(aes(x=BVA)) + geom_density()+
+  geom_density(data=data.in3, aes(x=BVA), color="red")
+```
+
+```{r}
+temp.2 <-data.in2 %>% dplyr::mutate(BVA.G = cut(BVA, breaks=seq(0,3,1)),
+                           VHCD.G = cut(VHCD, breaks=seq(0,3,1))) 
+temp.3 <-data.in3 %>% dplyr::mutate(BVA.G = cut(BVA, breaks=seq(0,3,1)),
+                           VHCD.G = cut(VHCD, breaks=seq(0,3,1))) 
+round(prop.table(table(BVA = temp.2$BVA.G, VHCD = temp.2$VHCD.G)),3)
+round(prop.table(table(BVA = temp.3$BVA.G, VHCD = temp.3$VHCD.G)),3)
+```

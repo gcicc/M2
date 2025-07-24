@@ -1,0 +1,150 @@
+---
+title: "Revisit video selection"
+format: html
+editor: visual
+---
+
+
+```{r}
+# Use single point set up
+study <- params$study
+repo_clone <- params$repo_clone
+input_dir <- params$input_dir
+output_dir <- params$output_dir
+this_endpoint <- params$this_endpoint
+
+source(paste0(repo_clone, "/Shared-Content/preamble.R"))
+functions_path <- path(repo_clone, "Clinical-Biological-Validation", "association", "functions")
+r_files <- list.files(path=functions_path, pattern="\\.R$", full.names=TRUE)
+cpp_files <- list.files(path=functions_path, pattern="\\.cpp$", full.names=TRUE)
+for (file in r_files) {
+  source(file)
+}
+for (file in cpp_files) {
+  sourceCpp(file)
+}
+
+table_path <- path(output_dir, "tables")
+dir.create(table_path)
+figure_path <- path(output_dir, "figures")
+dir.create(figure_path)
+
+# tictoc::tic() # 4.224 minutes!!!
+form_merged_data_sets_output <- form_merged_data_sets(analysis_type=params$analysis_type, study=study, this_endpoint=this_endpoint, output_dir=output_dir)
+# tictoc::toc()
+
+i<-1
+ merged_data_set <- form_merged_data_sets_output$merged_data_sets[[i]]
+  label.name <- names(form_merged_data_sets_output$merged_data_sets)[i]
+  analysis.data.in <- merged_data_set$merged_data.ML$merged_data.ML.full %>% mutate(label.name=label.name)
+  analysis.data.in$key <- paste(analysis.data.in$STUDYID, analysis.data.in$SUBJID, sep="-")
+  
+Patient.Selection <- read.csv("C:\\Users\\eri7441\\OneDrive - Takeda\\Documents\\R-Projects\\MARCS-ancillary-materials\\Patient-Selection-for-Set-A.csv")
+Patient.Selection$key <- paste(Patient.Selection$Protocol, Patient.Selection$Subject.ID, sep="-")
+Patient.Selection$key %>% unique() %>% length()
+data.subset <- analysis.data.in %>% dplyr::filter(key %in% Patient.Selection$key)
+data.subset$key %>% unique() %>% length()
+
+
+data.subset %>% dplyr::select(key, VISIT, BVA) %>% pivot_wider(names_from = VISIT, values_from = BVA) %>%
+  #count number of non-missing values in columns 2-4
+  dplyr::mutate(n_non_missing = rowSums(!is.na(.[,2:4]))) %>% 
+  arrange(desc(n_non_missing)) %>% write.csv("C:\\Users\\eri7441\\OneDrive - Takeda\\Documents\\R-Projects\\MARCS-ancillary-materials\\Patient-Selection-summary-14JAN25.csv", row.names = FALSE)
+
+BVA.summary <- analysis.data.in %>% dplyr::select(key, VISIT, BVA) %>% pivot_wider(names_from = VISIT, values_from = BVA) %>%
+  #count number of non-missing values in columns 2-4
+  dplyr::mutate(n_non_missing = rowSums(!is.na(.[,2:4]))) %>% 
+  arrange(desc(n_non_missing))
+
+BVA.summary.count <- analysis.data.in %>% dplyr::select(key, VISIT, BVA) %>% pivot_wider(names_from = VISIT, values_from = BVA) %>%
+  #count number of non-missing values in columns 2-4
+  dplyr::mutate(n_non_missing = rowSums(!is.na(.[,2:4]))) %>% 
+  arrange(desc(n_non_missing)) %>% dplyr::filter(n_non_missing == 3 & !(key %in% Patient.Selection$key)) 
+
+```
+
+```{r}
+analysis.data.in %>% names()
+temp <- analysis.data.in %>% dplyr::select(key, VISIT, BVA, GISS, IELCOUNT, VHCD) %>% pivot_wider(names_from = VISIT, values_from = BVA) %>%
+  #count number of non-missing values in columns 2-4
+  dplyr::mutate(n_non_missing = rowSums(!is.na(.[,5:7]))) %>% 
+  arrange(desc(n_non_missing))
+
+table(temp$n_non_missing)
+```
+
+```{r}
+# ## Case VHCD, IEL, GISS on scale with -1*VHCD
+working.df <- analysis.data.in %>% 
+  dplyr::filter(VISIT=="VISIT 2 - Week -4")%>%
+  dplyr::select(key, VHCD, IELCOUNT, GISS) %>%
+  na.omit() %>%
+  dplyr::mutate(VHCD = -VHCD) %>%
+  dplyr::mutate(VHCD = scale(VHCD),
+                IEL = scale(IELCOUNT),
+                GISS = scale(GISS)) %>%
+  dplyr::rename(SUBJID = key)
+
+common.alpha.model.out.1 <- common.alpha.model(data.in = working.df %>% dplyr::select(SUBJID, VHCD, IEL, GISS))
+
+# Grab esttheta from here
+PostEst.out.common.1 <- PosteriorEstimates(
+  grid = seq(-3, 5, .1),
+  dat = working.df %>% dplyr::select(SUBJID, VHCD, IEL, GISS),
+  I = 3,
+  indicator = "C",
+  lin = "lin",
+  parmatrest = common.alpha.model.out.1$parmatrix,
+  stdest = common.alpha.model.out.1$stdmixt
+)
+
+collect <- working.df  %>% cbind(esttheta =PostEst.out.common.1$esttheta) %>% 
+   dplyr::mutate(IRT.group = factor(case_when(
+    esttheta <= quantile(esttheta, .33) ~ "Low",
+    esttheta > quantile(esttheta, .67) ~ "High",
+    .default = "Moderate"
+  ), c("Low", "Moderate", "High"))) %>%
+  dplyr::rename(key=SUBJID)
+
+table(collect$IRT.group)
+
+tally <- BVA.summary %>% left_join(collect %>% dplyr::select(key,IRT.group)) %>% dplyr::mutate(`Previously Identified SUBJID` = ifelse(key %in% Patient.Selection$key, "Yes", "No")) 
+tally %>% group_by(IRT.group, `Previously Identified SUBJID`, n_non_missing) %>% dplyr::summarise(n=n()) 
+table(tally$IRT.group)
+table(tally$`Previously Identified SUBJID`)
+table(tally$IRT.group, tally$`Previously Identified SUBJID`)
+table(tally$IRT.group, tally$`Previously Identified SUBJID`, tally$n_non_missing)
+tally %>% arrange(desc(`Previously Identified SUBJID`), desc(n_non_missing), IRT.group) %>% view()
+
+write.csv(tally %>% arrange(desc(`Previously Identified SUBJID`), desc(n_non_missing), IRT.group), 
+          "C:\\Users\\eri7441\\OneDrive - Takeda\\Documents\\R-Projects\\MARCS-ancillary-materials\\Patient-Selection-summary-IRT-14JAN25.csv", row.names = FALSE)
+```
+
+```{r}
+analysis.data.in %>% dplyr::filter(key=="TAK-062-2001-58056-001")
+
+```
+
+```{r}
+AMR <- read_excel("C:/Users/eri7441/OneDrive - Takeda/Documents - MARCS-Validation-Data/Input/TAK-062-2001/Anatomical marking reports from Invicro/Takeda_VCE_Anatomical_Marking_Report_08Jan2025.xlsx")
+SUBJID.subset <- tally %>% dplyr::filter(n_non_missing != 3) %>% dplyr::select(key) %>% dplyr::pull()
+for.merge.into.tally <- AMR %>% dplyr::mutate(key=paste0(Protocol, "-",`Subject ID`)) %>%
+                      dplyr::filter(key %in% SUBJID.subset) %>%
+  dplyr::mutate(sufficient.quality = `Was the cecum reached?` == "Yes" & 
+                  `What was the image quality over the first third of the small bowel?` != "poor") %>% dplyr::select(key, `Imaging Timepoint`, sufficient.quality) %>%
+  dplyr::rename(VISIT = `Imaging Timepoint`) 
+
+for.merge.into.tally %>% pivot_wider(names_from = VISIT, values_from = sufficient.quality) %>% write.csv("C:\\Users\\eri7441\\OneDrive - Takeda\\Documents\\R-Projects\\MARCS-ancillary-materials\\Patient-Selection-summary-IRT-AMR-14JAN25.csv", row.names = FALSE)
+
+tally %>% arrange(desc(`Previously Identified SUBJID`), desc(n_non_missing), IRT.group) %>% 
+  left_join(for.merge.into.tally %>% pivot_wider(names_from = VISIT, values_from = sufficient.quality) %>% 
+              dplyr::rename(`VISIT 2 - Week -4 - quality` = `VISIT 2 - Week -4`,
+                            `VISIT 5 - Week 12 - quality` = `VISIT 5 - Week 12`,
+                            `VISIT 6 - Week 24 - quality` = `VISIT 6 - Week 24`)) %>%
+  dplyr::select(key, n_non_missing, IRT.group, `Previously Identified SUBJID`, `VISIT 2 - Week -4`, `VISIT 2 - Week -4 - quality`, `VISIT 5 - Week 12`, `VISIT 5 - Week 12 - quality`, `VISIT 6 - Week 24`, `VISIT 6 - Week 24 - quality`) %>%
+  dplyr::mutate(`VISIT 2 - Week -4 - quality` = ifelse(n_non_missing==3, TRUE, `VISIT 2 - Week -4 - quality`),
+                `VISIT 5 - Week 12 - quality` = ifelse(n_non_missing==3, TRUE, `VISIT 5 - Week 12 - quality`),
+                `VISIT 6 - Week 24 - quality` = ifelse(n_non_missing==3, TRUE, `VISIT 6 - Week 24 - quality`)) %>% write.csv("C:\\Users\\eri7441\\OneDrive - Takeda\\Documents\\R-Projects\\MARCS-ancillary-materials\\Patient-Selection-summary-IRT-AMR-15JAN25.csv", row.names = FALSE)
+
+```
+

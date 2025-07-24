@@ -1,0 +1,404 @@
+---
+title: "Untitled"
+format: html
+editor: visual
+---
+
+## Load packages
+
+```{r}
+require(tidyverse)
+require(gridExtra)
+```
+
+## Sampling approach
+
+### Rejection sampling approach
+
+-   Inititally sample from normal distribution
+-   Rejection sampling is used to mimic sample statistics
+-   All conditions must be met:
+    -   condition1 \<- (abs(median(temp) - median.bio) \< sd.bio/sqrt(n)*2*1.253)
+    -   condition2 \<- min(temp) \> min.bio\*2
+    -   condition3 \<- max(temp) \< max.bio\*2
+
+```{r}
+# For normally distributed data the sampling distribution of median's SE is 1.253*SE of mean.
+#' Title
+#'
+#' @param n0 prior sample size
+#' @param n sample size per arm
+#' @param mean.bio best guess at population mean
+#' @param sd.bio best guess at population sd
+#' @param median.bio best guess at population median
+#' @param min.bio min based on data
+#' @param max.bio max based on data
+#' @param group group label
+#' @param Endpoint endpoint label
+#'
+#' @return
+#' @export
+#'
+#' @examples
+rsample <- function(n0 = 13, n=18,
+                    mean.bio=.69, sd.bio=.979, median.bio = .40, 
+                    min.bio = -.1, max.bio=2.9, group="PBO", Endpoint = "Biomarker"){
+  # Sample from sampling distribution of mean
+  my.mean <- mean.bio/sqrt(n0)
+  # Sample from sampling distribution of median
+  my.median <- median.bio/sqrt(n0)*1.253
+  my.sd <- sqrt((n0-1)*sd.bio^2/rchisq(n = 1, df = n0-1))
+  
+  repeat{
+    temp <- rnorm(n = n, mean = my.mean, sd = my.sd)
+    condition1 <- (abs(median(temp) - median.bio) < sd.bio/sqrt(n)*2*1.253)
+    condition2 <- min(temp) > min.bio*2
+    condition3 <- max(temp) < max.bio*2
+    if(condition1 == TRUE  & condition2 == TRUE & condition3 == TRUE) break             
+  }
+  for.return <- data.frame(Endpoint = temp, group=group)
+  names(for.return)[1] <- Endpoint
+  for.return
+  
+}
+```
+
+### Correlation via re-sampling
+
+-   Having sampled biomarker and symptom endpoint, order of observations is shuffeled until
+    -   target.cor - tol \< sample correlation \< target.cor + tol
+
+```{r}
+corr.sample <- function(rsample.biv=rsample.trt, target.cor = .5, tol=.1){
+
+ repeat{
+     rsample.biv$Biomarker <- sample(rsample.biv$Biomarker)
+     rsample.biv$Symptom <- sample(rsample.biv$Symptom)
+     if(cor(rsample.biv$Biomarker, rsample.biv$Symptom) < target.cor + tol &  cor(rsample.biv$Biomarker, rsample.biv$Symptom) > target.cor - tol) break
+  
+  
+ }
+  return(rsample.biv)
+}
+```
+
+#### Testing
+
+```{r}
+# Sample data for treatment biomarker
+rsample1.trt <- rsample(n0 = 13, n = 18, 
+                    mean.bio=2.01, sd.bio=6.958, median.bio = -.20, 
+                    min.bio = -6.2, max.bio=17.7, group = "TRT", Endpoint = "Biomarker")
+# sample data for treatment symptom
+rsample2.trt <- rsample(n0 = 13, n = 18, 
+                    mean.bio=.69, sd.bio=.979, median.bio = .4, 
+                    min.bio = -.1, max.bio=2.9, group = "TRT", Endpoint = "Symptom")
+# Combine
+rsample.trt <- cbind(rsample1.trt, Symptom=rsample2.trt$Symptom) %>% select(group, everything())
+rsample.trt %>% summarize(Biomarker.mean = mean(Biomarker),
+                          Symptom.mean = mean(Symptom))
+
+# resample for correlation
+rsample.trt.corr <- corr.sample(rsample.biv = rsample.trt, target.cor = .3, tol = .05)
+
+rsample.trt.corr%>% summarize(Biomarker.mean = mean(Biomarker),
+                          Symptom.mean = mean(Symptom))
+
+cor(rsample.trt.corr$Biomarker, rsample.trt.corr$Symptom)
+
+# Sample data for placebo biomaker
+rsample1.pbo <- rsample(n0 = 16, n = 18, mean.bio=3.64, sd.bio=3.685, median.bio = 2.56, 
+                    min.bio = 0, max.bio=11.5, group = "PBO",Endpoint = "Biomarker")
+# Sample data for placebo symptom
+rsample2.pbo <-  rsample(n0 = 16, n = 18, mean.bio=17.57, sd.bio=25.283, median.bio = 8.70, 
+                    min.bio = -1.1, max.bio=98.8, group = "PBO",Endpoint = "Symptom")
+
+# Combine
+rsample.pbo <- cbind(rsample1.pbo, Symptom=rsample2.pbo$Symptom)
+# resample for correlation
+rsample.pbo.corr <- corr.sample(rsample.biv = rsample.pbo, target.cor = .3, tol = .05)
+cor(rsample.pbo.corr$Biomarker, rsample.pbo.corr$Symptom)
+
+
+
+```
+
+## Check on univariate densities
+
+```{r}
+rbind(rsample.pbo.corr, rsample.trt.corr) %>% 
+  ggplot(aes(x = Biomarker, fill = group)) +
+  geom_density(alpha = .5) +
+  geom_rug(aes(color = group)) + 
+  labs(x = "Biomarker", y = "", title = "Density of Biomarker from simulated data")
+```
+
+```{r}
+rbind(rsample.pbo.corr, rsample.trt.corr) %>% 
+  ggplot(aes(x = Symptom, fill = group)) + 
+  geom_density(alpha = .5) + geom_rug(aes(color = group)) + 
+  labs(x = "Symptom", y = "", title = "Density of Symptom from simulated data")
+
+```
+
+## Check on bivariate behavior
+
+```{r}
+rbind(rsample.pbo.corr, rsample.trt.corr) %>% 
+  ggplot(aes(x = Biomarker, y = Symptom, color = group)) + 
+  geom_point() + facet_wrap( ~ group, scales = "free_x") + geom_smooth(method = "lm")+
+  labs(x="Biomarker", y="Symptom", title="Scatterplot of Biomarker and Symptom")
+```
+
+$$EffectSize = \frac{\bar{x}_{TRT} - \bar{x}_{PBO}}{sd_{pooled}}$$
+
+```{r}
+rbind(rsample.pbo.corr, rsample.trt.corr) %>% group_by(group) %>% summarize(bio.mean=mean(Biomarker),
+                                                                            bio.sd = sd(Biomarker),
+                                                                            sym.mean =mean(Symptom),
+                                                                            sym.sd = sd(Symptom),
+                                                                            n=n()) %>% 
+  mutate(mean.diff.bio=bio.mean[1] - bio.mean[2],
+         pooled.sd.bio = ((bio.sd[1])^2*(n[1]-1) + (bio.sd[2])^2*(n[2]-1))/(n[1] + n[2]-2),
+         effect.size.bio = mean.diff.bio/pooled.sd.bio,
+         mean.diff.sym = sym.mean[1] - sym.mean[2])
+```
+
+## Altogether now
+
+```{r}
+run.trial <- function(n0.trt = 13, n.trt = 18, mean.bio.trt=2.01, sd.bio.trt=6.958, median.bio.trt=-.20, min.bio.trt=-6.2, max.bio.trt=17.7,
+                      mean.sym.trt=.69, sd.sym.trt=.979, median.sym.trt=.4, min.sym.trt= -.1, max.sym.trt=2.9,
+                      n0.pbo = 16 , n.pbo = 18, mean.bio.pbo=17.57 , sd.bio.pbo=25.283 , median.bio.pbo=8.70 , min.bio.pbo=-1.1, max.bio.pbo=98.8 ,
+                      mean.sym.pbo=3.64, sd.sym.pbo=3.685, median.sym.pbo=2.56, min.sym.pbo=0, max.sym.pbo=11.5, target.cor=.3, tol=.05){
+
+  # Sample Biomarkers
+rsample1.trt <- rsample(n0 = n0.trt, n = n.trt, 
+                    mean.bio=mean.bio.trt, sd.bio=sd.bio.trt, median.bio = median.bio.trt, 
+                    min.bio = min.bio.trt, max.bio=max.bio.trt, group = "TRT", Endpoint = "Biomarker")
+# sample data for treatment symptom
+rsample2.trt <- rsample(n0 = n0.trt, n = n.trt, 
+                    mean.bio=mean.sym.trt, sd.bio=sd.sym.trt, median.bio = median.sym.trt, 
+                    min.bio = min.sym.trt, max.bio=max.sym.trt, group = "TRT", Endpoint = "Symptom")
+# Combine
+rsample.trt <- cbind(rsample1.trt, Symptom=rsample2.trt$Symptom) %>% select(group, everything())
+rsample.trt %>% summarize(Biomarker.mean = mean(Biomarker),
+                          Symptom.mean = mean(Symptom))
+
+# resample for correlation
+rsample.trt.corr <- corr.sample(rsample.biv = rsample.trt, target.cor = .3, tol = .05)
+
+# Sample biomarker
+rsample1.pbo <- rsample(n0 = n0.pbo, n = n.pbo, 
+                    mean.bio=mean.bio.pbo, sd.bio=sd.bio.pbo, median.bio = median.bio.pbo, 
+                    min.bio = min.bio.pbo, max.bio=max.bio.pbo, group = "PBO", Endpoint = "Biomarker")
+# sample data for treatment symptom
+rsample2.pbo <- rsample(n0 = n0.pbo, n = n.pbo, 
+                    mean.bio=mean.sym.pbo, sd.bio=sd.sym.pbo, median.bio = median.sym.pbo, 
+                    min.bio = min.sym.pbo, max.bio=max.sym.pbo, group = "PBO", Endpoint = "Symptom")
+
+# Combine
+rsample.pbo <- cbind(rsample1.pbo, Symptom=rsample2.pbo$Symptom)
+# resample for correlation
+rsample.pbo.corr <- corr.sample(rsample.biv = rsample.pbo, target.cor = target.cor, tol = tol)
+
+# Combine and compute summary stats
+rbind(rsample.pbo.corr, rsample.trt.corr) %>% 
+  group_by(group) %>% 
+  summarize(bio.mean=mean(Biomarker),
+            bio.sd = sd(Biomarker),
+            sym.mean =mean(Symptom),
+            sym.sd = sd(Symptom),
+            cor=cor(Biomarker, Symptom),
+            n=n()) %>% 
+  mutate(mean.diff.bio=bio.mean[1] - bio.mean[2],
+         pooled.sd.bio = ((bio.sd[1])^2*(n[1]-1) + (bio.sd[2])^2*(n[2]-1))/(n[1] + n[2]-2),
+         effect.size.bio = mean.diff.bio/pooled.sd.bio,
+         mean.diff.sym = sym.mean[1] - sym.mean[2])
+}
+```
+
+```{r}
+require(gt)
+run.trial() %>% select(-effect.size.bio, - pooled.sd.bio) %>% gt()
+```
+
+```{r}
+biomarker.grid <- data.frame(
+mean=seq(2.01, 17.57, length.out=10),
+sd = seq(6.958, 25.283, length.out=10),
+median = seq(-.20, 8.70, length.out=10),
+min = seq(-6.2, -1.1, length.out=10),
+max = seq(17.7, 98.8, length.out=10))
+```
+
+```{r}
+symptom.grid <- data.frame(
+mean=seq(.69, 3.64, length.out=10),
+sd = seq(.979, 3.685, length.out=10),
+median = seq(.4, 2.56, length.out=10),
+min = seq(-.1, 0, length.out=10),
+max = seq(2.9, 11.5, length.out=10))
+```
+
+```{r}
+#' @title goparallel
+#' @description initiates parallel computing and sends tidyverse to each core
+#' @param ncores number of cores
+goparallel <- function(ncores=7)
+{
+  cat(paste("\nCurrent Connections: ", dim(showConnections())[1], "\n"))
+  cat("\nClosing any open connections...\n")
+  closeAllConnections()
+  if(exists("cl")) remove(cl)
+  cat(paste("\nCurrent Connections: ", dim(showConnections())[1], "\n"))
+  cat(paste("\nStarting new cluster with", ncores, "cores...\n"))
+  cl <<- parallel::makeCluster(spec = ncores, type="PSOCK")
+  cat(" Cluster initiation complete\n")
+  cat(paste("\nCurrent Connections: ", dim(showConnections())[1], "\n"))
+  cat(paste("\n", exists("cl"), "\n"))
+
+  parallel::clusterEvalQ(cl=cl, expr = {require(tidyverse)})
+  cat("\n\n***\nThe tidyverse pacakge has been sent to each core.\nDo you need other parallel::clusterEvalQ or parallel::clusterExport calls before running your code?\n****\n")
+}
+
+require(parallel)
+goparallel()
+parallel::clusterExport(cl=cl, varlist=c("rsample", "run.trial", "corr.sample", "biomarker.grid", "symptom.grid"))
+```
+
+```{r eval=FALSE}
+tictoc::tic()
+holdit <- bind_rows(parApply(cl = cl, X = matrix(1:1000), MARGIN = 1, FUN = function(x){
+  apply(X=matrix(1:nrow(biomarker.grid)), MARGIN = 1, FUN = function(y){
+    run.trial(n0.trt = 13, n.trt = 18, mean.bio.trt=biomarker.grid$mean[y], sd.bio.trt=biomarker.grid$sd[y], median.bio.trt=biomarker.grid$median[y], min.bio.trt=biomarker.grid$min[y], max.bio.trt=biomarker.grid$max[y],
+              mean.sym.trt=symptom.grid$mean[y], sd.sym.trt=symptom.grid$sd[y], median.sym.trt=symptom.grid$median[y], min.sym.trt= symptom.grid$min[y], max.sym.trt=symptom.grid$max[y],
+              n0.pbo = 16 , n.pbo = 18, mean.bio.pbo=17.57 , sd.bio.pbo=25.283 , median.bio.pbo=8.70 , min.bio.pbo=-1.1, max.bio.pbo=98.8 ,
+              mean.sym.pbo=3.64, sd.sym.pbo=3.685, median.sym.pbo=2.56, min.sym.pbo=0, max.sym.pbo=11.5) %>% mutate(scenario=y, rep=x)
+  })
+  
+}))
+tictoc::toc()
+```
+
+```{r eval=FALSE}
+head(holdit)
+write.csv(holdit, "simulation-results.csv")
+```
+
+samping distribution of mean diff
+
+```{r}
+holdit <- read.csv("simulation-results.csv")[, -1]
+holdit %>% ggplot(aes(x = bio.mean, color = factor(scenario))) +
+  geom_density(linewidth = 1) +
+  facet_wrap( ~ group) +
+  labs(
+    color = "Scenario",
+    title = "Sampling distribution of the mean",
+    x = "Biomarker mean",
+    y = ""
+  )
+```
+
+```{r}
+holdit %>% ggplot(aes(x = sym.mean, color = factor(scenario))) +
+  geom_density() +
+  facet_wrap( ~ group) +
+  labs(
+    color = "Scenario",
+    title = "Sampling distribution of the mean",
+    x = "Symptom mean",
+    y = ""
+  )
+```
+
+```{r}
+holdit %>% group_by(scenario, rep) %>% slice(1) %>% group_by(scenario) %>%
+  ggplot(aes(x = mean.diff.bio, color = factor(scenario))) + geom_density() +
+  labs(
+    x = "Biomarker Effect Size",
+    y = "",
+    title = "Densities of Biomarker effect size by Scenario",
+    subtitle = "Effect size: Difference in means",
+    color = "Scenario"
+  ) +
+  scale_x_continuous(breaks = seq(-30, 40, 5)) + geom_vline(xintercept =
+                                                              0) +
+  geom_vline(
+    xintercept = c(5, 10, 15),
+    linetype = 2,
+    color = "grey70"
+  )
+```
+
+```{r}
+holdit %>% group_by(scenario, rep) %>% slice(1) %>% group_by(scenario) %>%
+  ggplot(aes(x = mean.diff.sym, color = factor(scenario))) + geom_density() +
+  labs(
+    x = "Symptom difference",
+    y = "",
+    color = "Scenario",
+    title = "Densities of Symptom effect size by Scenario",
+    subtitle = "Effect size: Difference in means"
+  ) +
+  geom_vline(xintercept = 0) +
+  geom_vline(
+    xintercept = c(.5, 1),
+    linetype = 2,
+    color = "grey70"
+  )
+
+```
+
+```{r}
+classify <- function(bio.cut = c(5, 10, 15),
+                     sym.cut = c(.5, 1)) {
+  holdit %>% group_by(scenario, rep) %>% slice(1) %>% ungroup() %>%
+    mutate(
+      biomark.class = case_when(
+        mean.diff.bio < bio.cut[1] ~ 1,
+        mean.diff.bio > bio.cut[1] &
+          mean.diff.bio < bio.cut[2] ~ 2,
+        mean.diff.bio > bio.cut[2] &
+          mean.diff.bio < bio.cut[3] ~ 3,
+        mean.diff.bio >  bio.cut[3]  ~ 4
+      )
+    ) %>%
+    mutate(
+      sym.class = case_when(
+        mean.diff.sym < sym.cut[1] ~ 1,
+        mean.diff.sym > sym.cut[1] &
+          mean.diff.sym < sym.cut[2] ~ 2,
+        mean.diff.sym > sym.cut[2] ~ 3
+      )
+    ) %>%
+    mutate(
+      category = case_when((biomark.class == 1 |
+                              sym.class == 1) ~ "Continue at De-risk Status",
+                           (biomark.class == 2 &
+                              sym.class %in% c(2, 3)) ~ "Conditional Investment increase",
+                           (biomark.class == 3 &
+                              sym.class == 2) ~ "Conditional Investment increase",
+                           (biomark.class == 3 &
+                              sym.class == 3) ~ "Increase Investment",
+                           (biomark.class == 4 &
+                              sym.class %in% c(2, 3))  ~ "Increase Investment"
+      )
+    )
+}
+
+
+classify() %>% 
+  group_by(scenario) %>% 
+  count(category) %>% 
+  mutate(prop=n/sum(n)) %>% 
+  ggplot(aes(x=scenario, y = prop, fill=category)) + 
+  geom_bar(stat="identity")+
+  scale_x_continuous(breaks=seq(1,10,1)) + 
+  labs(title="Decision Rule Outcome classification based on dual endpoint assessment",
+       subtitle="bio.cut = c(5, 10, 15), sym.cut = c(.5, 1)", x="Scenario", y="Proportion")
+
+```
+
+![](images/decision.png){width="1369"}

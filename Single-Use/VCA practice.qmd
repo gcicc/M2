@@ -1,0 +1,149 @@
+---
+title: "VCA Practice"
+format: html
+editor: visual
+---
+
+## 
+
+```{r}
+require(tidyverse)
+require(VCA)
+```
+
+```{r}
+data("VCAdata1")
+datS5 <- subset(VCAdata1, sample==5)
+
+varPlot(form=y~(device+lot)/day/run, Data=datS5)
+```
+```{r}
+fitS5 <- anovaVCA(y~(device+lot)/day/run, datS5)
+plotRandVar(fitS5, term="cond", mode="student")
+
+
+```
+```{r}
+asRGB <- function(col, alpha)
+            rgb(t(col2rgb(col))/255, alpha=alpha)
+            
+data(dataEP05A2_3)
+
+varPlot(y~day/run, dataEP05A2_3,
+    # controls horizontal mean lines
+    MeanLine=list(var=c("int", "day"), col=c("gray75", "blue"), lwd=c(2,2)),
+    # controls how points (concentrations) are plotted, here using semi-transparency
+    # to see overlayed points
+    Points=list(pch=16, col=asRGB("black", .5), cex=1.25),
+    # controls how replicate-means are plotted
+    Mean=list(col="magenta", cex=1.25, lwd=2),
+    # controls how the title is shown
+    Title=list(main="20 x 2 x 2 Single-Site Evaluation", cex.main=1.75),
+    # controls plotting of levels per VC, if as many lists as there are VCs are
+    # specified, each VC can be specified individually
+    VarLab=list(list(cex=1.5), list(cex=1.25)),
+    # controls how names of VCs are plotted
+    VCnam=list(font=2, cex=1.5),
+    # controls appearance of the Y-axis label
+    YLabel=list(text="Concentation [mg/dL]", las=0, line=3, font=2, cex=1.25),
+    # Y-axis labels rotated
+    las=1)
+```
+```{r}
+fit.SS3 <- fitVCA(y~day/run, dataEP05A2_3)
+
+
+fit.SS3
+```
+
+```{r}
+inf.SS3 <- VCAinference(fit.SS3, VarVC=TRUE)
+inf.SS3
+```
+
+```{r}
+# simulate fit 3 x 5 x 2 x 3 model to data
+set.seed(23)
+dat.MS2 <- data.frame(  y=50 +
+                        # 3 random effects for sites
+                        rep(rnorm(3,0,2.5), rep(30, 3)) +
+                        # 15 random effects for days
+                        rep(rnorm(15,0, 2), rep(6, 15)) +
+                        # 30 random effects for runs
+                        rep(rnorm(30,0, 1), rep(3, 30)) +
+                        # residual error (repeatability)
+                        rnorm(90,0,1.5),
+                        site = gl(3, 30, labels=paste0("Site_", 1:3)),
+                        day = gl(5, 6, 90),
+                        run =gl(2, 3, 90)
+                    )
+
+
+```
+
+
+```{r}
+holdit <- dat.MS2 %>% 
+  mutate(grand.mean = mean(y)) %>%
+  group_by(site) %>%
+  mutate(site.mean = mean(y)) %>%
+  group_by(site, day) %>%
+  mutate(day.mean = mean(y)) %>%
+  group_by(day, site, run) %>%
+  mutate(day.site.mean = mean(y))
+
+# SST
+SST <- holdit %>% ungroup() %>% summarize(SST = sum((y-grand.mean)*(y-grand.mean)))
+# SS-Site
+SSSITE <- holdit  %>% ungroup() %>% summarize(SST = sum((grand.mean-site.mean)*(grand.mean-site.mean)))
+# SS-day within site
+SSDAY.SITE <- holdit %>% ungroup() %>% summarize(SST = sum((day.mean-site.mean)*(day.mean-site.mean)))
+## SS-run within day-within site
+SSRUN.DAYSITE <- holdit %>% ungroup() %>% summarize(SST = sum((day.mean-day.site.mean)*(day.mean-day.site.mean)))
+
+
+holdit %>% ungroup() %>% summarize(SST = sum((y- day.site.mean)*(y-day.site.mean)))
+holdit %>% group_by(site) %>% summarize(SST = sum((y- day.site.mean)*(y-day.site.mean)))
+
+```
+
+
+
+```{r}
+varPlot(y~site/day/run, dat.MS2,
+    BG=list(var="site", col=paste0("gray", c(100, 80, 60))),
+    Points=list(pch=16, col=asRGB("black", .5), cex=1.25),
+    MeanLine=list( var=c("int", "site", "day"),
+    col=c("black", "orange", "blue"),
+    lwd=c(2,2,2)),
+    Mean=list(col="cyan", cex=1.25, lwd=2), las=1,
+    YLabel=list(text="Concentation [mg/dL]", las=0, line=3, font=2, cex=1.25),
+    Title=list(main="3 x 5 x 2 x 3 Multi-Site Evaluation", cex.main=1.75),
+    VCnam=list(font=2, cex=1.5),
+    # controls for which variable vertical lines are added between levels
+    # and how these are plotted
+    VLine=list(var="day", col="gray75"),
+    VarLab=list(list(cex=1.5), list(cex=1.25), list(cex=1.25)))
+```
+```{r}
+# fit 3 x 5 x 2 x 3 model to data (ANOVA is default)
+fit.MS2 <- fitVCA(y~site/day/run, dat.MS2)
+fit.MS3 <- anovaVCA(y~site/day/run, dat.MS2)
+
+print(fit.MS2, digits=4)
+```
+
+
+
+
+```{r}
+sum((fit.MS2$fitted.values -  dat.MS2$y)^2)
+# 207.2225 + 179.1583+58.615+103.9207
+sum(residuals(fit.MS2)^2)
+
+mean(dat.MS2$y)
+
+```
+$$\Sigma_{i=1}^n\Sigma_{j=1}^t\Sigma_{k=1}^m y_{ijkl}^2 = $$
+$$ = \Sigma_{i=1}^n\Sigma_{j=1}^t\Sigma_{k=1}^m (y_{ijkl} - \bar{y} + \bar{y})^2 $$
+$$ = \Sigma_{i=1}^n\Sigma_{j=1}^t\Sigma_{k=1}^m (y_{ijkl} - \bar{y} + \bar{y})^2 $$

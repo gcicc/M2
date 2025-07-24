@@ -1,0 +1,319 @@
+---
+title: "Analysis Module: Associations of MARCS `r gsub(x=params$this_endpoint, pattern='_', replacement=' ')` Relative to Accepted Clinical Endpoints"
+
+format: 
+  pdf:
+    toc: true
+    number-sections: true
+    number-offset: 1
+
+params:
+  study: "a study"
+  repo_clone: "directory where the clone is"
+  input_dir: "directory for the input"
+  output_dir: "directory for the output"
+  this_endpoint: "Tertile1_Max"
+  reader: "ML2.3"
+
+execute: 
+  echo: false
+  message: false
+  warning: false
+  tbl-cap-location: top
+---
+
+\newpage
+
+```{r packages-and-source, echo=FALSE}
+study <- params$study
+repo_clone <- params$repo_clone
+input_dir <- params$input_dir
+output_dir <- params$output_dir 
+source(paste0(repo_clone,"/Shared-Content/preamble.R"))
+
+# source(path(repo_clone,"Clinical-Biological-Validation/single-timepoint","functions","Clinical-Biological-Validation-setup.R"))
+# table_path <- path(output_dir,"tables")
+# dir.create(table_path)
+# figure_path <- path(output_dir,"figures")
+# dir.create(figure_path)
+```
+
+```{r}
+histology_062_2001_etl <- function(provenance,log_dir=NULL) {
+  if (str_contains(input_dir,"TAK-062-2001")) {
+    raw <- path(input_dir,"CDSD_Histology_data.xlsx")
+    histology_df <- read_excel(raw)
+    demog_df <- demog_062_2001_etl(provenance)$demog_df # we'll need this to get observed dates from visit calendar
+    # and we only want rows that are contained in both anyway
+  } else {
+    print("Logic error: input dir is not for the expected study.")
+    return(NULL) 
+  }
+
+  # First let's get columns that we'll be using into standard naming and join with demog
+  histology_df <- histology_df %>%
+    dplyr::mutate(STUDYID="TAK-062-2001") %>%
+    dplyr::rename(SITE=`Study Site Identifier`) %>%
+    dplyr::rename(SUBJID=`Subject Identifier for the Study`) %>%
+    dplyr::rename(VISIT=`Analysis Visit`) %>%
+    dplyr::rename(WEEKS_FROM_RAND=`Analysis Visit (N)`) 
+  
+  histology_df <- inner_join(histology_df, demog_df, by=c("STUDYID", "SITE", "SUBJID")) %>%
+    dplyr::mutate(OBSDATE=ENRDATE+weeks(WEEKS_FROM_RAND))
+  
+  # Villous height to Crypt depth ratio----
+  VHCD <- histology_df %>% 
+    filter(`Parameter Category 1` == "ESOPHAGOGASTRODUODENOSCOPY", 
+           `Parameter Code` == "VHCD", 
+           `VISIT` %in% c("Baseline", "Week 24")) %>%
+    dplyr::rename(VHCD = `Analysis Value`) 
+
+  # Intraepithelial Lymphocytes/Enterocyte count----
+  IEL <- histology_df %>%
+    filter(`Parameter Category 1` == "ESOPHAGOGASTRODUODENOSCOPY", 
+           `Parameter Code` == "LYEPIENT", 
+           `VISIT` %in% c("Baseline", "Week 24")) %>%
+    dplyr::rename(IELCOUNT = `Analysis Value`)
+
+  histology_df <- VHCD %>% 
+    left_join(IEL, by=c("STUDYID", "SITE", "SUBJID", "OBSDATE", "VISIT"), relationship="many-to-many") %>%
+    mutate(MO = NA) %>% # just for now (we do have this data)
+    dplyr::select("STUDYID",
+                  "SITE",
+                  "SUBJID",
+                  "OBSDATE",
+                  "VISIT",
+                  "MO", 
+                  VHCD, 
+                  IELCOUNT)
+
+  if (!is.null(log_dir)) {
+    write.csv(histology_df,path(log_dir,"histology_df_after_etl_062-2001.csv"),row.names=FALSE)
+  }
+  return(list(histology_df=histology_df,provenance=provenance)) # only one dataframe, in standard columns, all study-specific logic incorporated
+}
+
+
+symptoms_062_2001_etl <- function(provenance,log_dir=NULL) {
+  if (str_contains(input_dir,"TAK-062-2001")) {
+    raw <- path(input_dir,"CDSD_Histology_data.xlsx")
+    symptoms_df <- read_excel(raw)
+    demog_df <- demog_062_2001_etl(provenance)$demog_df # we'll need this to get observed dates from visit calendar
+    # and we only want rows that are contained in both anyway
+  } else {
+    print("Logic error: input dir is not for the expected study.")
+    return(NULL) 
+  }
+
+  # first let's get columns that we'll be using into standard naming and join with demog
+  symptoms_df <- symptoms_df %>%
+    filter(`Parameter` == "CDSD GI Score Weekly",
+           `Analysis Visit` %in% c("Baseline", "Week 24")) %>%
+    dplyr::mutate(STUDYID="TAK-062-2001") %>%
+    dplyr::rename(SITE=`Study Site Identifier`) %>%
+    dplyr::rename(SUBJID=`Subject Identifier for the Study`) %>%
+    dplyr::rename(VISIT=`Analysis Visit`) %>%
+    dplyr::rename(WEEKS_FROM_RAND=`Analysis Visit (N)`)
+  
+  symptoms_df <- inner_join(symptoms_df, demog_df, by=c("STUDYID", "SITE", "SUBJID")) 
+  
+  # Extract CDSD GI Score Weekly ----
+  GISS <- symptoms_df %>% 
+    dplyr::mutate(OBSDATE=ENRDATE+weeks(WEEKS_FROM_RAND)) %>%
+    dplyr::select("STUDYID",
+                  "SITE", 
+                  "SUBJID",
+                  OBSDATE,
+                  "VISIT",  
+                  "Parameter", 
+                  "Parameter Code", 
+                  "Analysis Value")
+
+  GISS <- GISS %>%
+    dplyr::rename(GISS = `Analysis Value`) %>%
+    dplyr::select("STUDYID",
+                  "SITE", 
+                  "SUBJID",
+                  "OBSDATE",
+                  "VISIT", 
+                  GISS)
+
+  lbl <- c("STUDYID",
+           "SITE",
+           "SUBJID",
+           "OBSDATE",
+           "VISIT", 
+           'GI Severity Score')
+  labelled::var_label(GISS) <- split(lbl,names(GISS))
+
+  # final df
+  symptoms_df <- GISS %>% 
+                 dplyr::select("STUDYID",
+                               "SITE",
+                               "SUBJID",
+                               "OBSDATE",
+                               "VISIT", 
+                               GISS)
+
+  if (!is.null(log_dir)) {
+    write.csv(symptoms_df,path(log_dir,"symptoms_df_after_etl_062-2001.csv"),row.names=FALSE)
+  }
+  return(list(symptoms_df=symptoms_df,provenance=provenance)) # only one dataframe, in standard columns, all study-specific logic incorporated
+}
+
+
+```
+
+
+```{r ETL, echo=FALSE}
+## Analysis Inputs: Prepared data following ETL.
+input_dir <- path(input_base_dir,"Milan")
+  demog_df.Milan <- demog_milan_etl(provenance)
+  histology_df.Milan <- histology_milan_etl(provenance)
+  symptoms_df.Milan <- symptoms_milan_etl(provenance)
+  vce_df.Milan <- vce_milan_etl(provenance)
+
+  input_dir <- path(input_base_dir,"Phase0")
+  demog_df.Phase0 <- demog_phase0_etl(provenance)
+  histology_df.Phase0 <- histology_phase0_etl(provenance)
+  symptoms_df.Phase0 <- symptoms_phase0_etl(provenance)
+  vce_df.Phase0 <- vce_phase0_etl(provenance)
+
+  input_dir <- path(input_base_dir,"TAK-062-2001")
+  demog_df.TAK <- demog_062_2001_etl(provenance)
+  histology_df.TAK <- histology_062_2001_etl(provenance)
+  symptoms_df.TAK <- symptoms_062_2001_etl(provenance)
+
+demog <- bind_rows(demog_df.Milan$demog_df, demog_df.Phase0$demog_df, demog_df.TAK$demog_df)
+histology <- bind_rows(histology_df.Milan$histology_df, histology_df.Phase0$histology_df, histology_df.TAK$histology_df)
+symptoms <- bind_rows(symptoms_df.Phase0$symptoms_df, symptoms_df.TAK$symptoms_df)
+vce <- bind_rows(vce_df.Milan$vce_df[[1]] %>% mutate(VISIT = as.character(VISIT)), vce_df.Phase0$vce_df[[1]])
+
+```
+
+```{r}
+working.df <- histology  %>%
+    arrange(STUDYID, SITE, SUBJID, OBSDATE) %>%
+    group_by(STUDYID, SITE, SUBJID) %>%
+    dplyr::mutate(Timepoint = as.numeric(difftime(OBSDATE, OBSDATE[1], units = "days"))) %>% 
+  # filter to those with two time points
+  filter(n() > 1) %>%
+  dplyr::mutate(VHCD.diff = VHCD - VHCD[1],
+         IELCOUNT.diff = IELCOUNT - IELCOUNT[1],
+         VHCD.ratio = VHCD/VHCD[1],
+         IELCOUNT.ratio = IELCOUNT/IELCOUNT[1],
+         VHCD.diff.rate=VHCD.diff/Timepoint,
+         IELCOUNT.diff.rate = IELCOUNT.diff/Timepoint,
+         VHCD.ratio.rate = VHCD.ratio/Timepoint,
+         VHCD.ratio.rate.log = log(VHCD.ratio.rate),
+         IELCOUNT.ratio.rate = IELCOUNT.ratio/Timepoint,
+         IELCOUNT.ratio.rate.log = log(IELCOUNT.ratio.rate) )
+
+working.df %>% slice(2) %>% pivot_longer(cols = c(VHCD.diff, VHCD.ratio ,VHCD.diff.rate, VHCD.ratio.rate,VHCD.ratio.rate.log)) %>% 
+  ggplot(aes(x=value)) + geom_histogram(bins=30) + facet_grid(STUDYID~name, scales="free_x") 
+
+
+
+```
+
+```{r}
+working.df %>% slice(2) %>% pivot_longer(cols = c(IELCOUNT.diff, IELCOUNT.ratio ,IELCOUNT.diff.rate, IELCOUNT.ratio.rate,IELCOUNT.ratio.rate.log )) %>% 
+  ggplot(aes(x=value)) + geom_histogram(bins=30) + facet_grid(STUDYID~name, scales="free_x") 
+
+
+```
+
+```{r}
+working.df2 <- symptoms  %>%
+    arrange(STUDYID, SITE, SUBJID, OBSDATE) %>%
+    group_by(STUDYID, SITE, SUBJID) %>%
+    dplyr::mutate(Timepoint = as.numeric(difftime(OBSDATE, OBSDATE[1], units = "days"))) %>% 
+  # filter to those with two time points
+  filter(n() > 1) %>%
+  dplyr::mutate(GISS.diff = GISS - GISS[1],
+         GISS.ratio = GISS/GISS[1],
+         log.GISS.ratio = log(GISS.ratio),
+         GISS.diff.rate=GISS.diff/Timepoint,
+        GISS.ratio.rate = GISS.ratio/Timepoint,
+        GISS.ratio.rate.log = log(GISS.ratio.rate) )
+
+working.df2 %>% slice(2) %>% pivot_longer(cols = c(GISS.diff, GISS.ratio ,GISS.diff.rate, log.GISS.ratio,GISS.ratio.rate.log )) %>% 
+  ggplot(aes(x=value)) + geom_histogram(bins=30) + facet_grid(STUDYID~name, scales="free_x") 
+
+
+
+```
+
+```{r}
+vce_df.Milan$vce_df[[1]]
+```
+
+
+```{r fig.width=8}
+working_df3 <- vce %>%
+    arrange(STUDYID, SITE, SUBJID, OBSDATE) %>%
+  dplyr::filter(READER %in% c("MLV") | Reader %in% "MLV2.2") %>%
+    group_by(STUDYID, SITE, SUBJID) %>%
+    dplyr::mutate(Timepoint = as.numeric(difftime(OBSDATE, OBSDATE[1], units = "days"))) %>% 
+  # filter to those with two time points
+  filter(n() > 1) %>%
+  dplyr::mutate(BVA.diff = BVA - BVA[1],
+         BVA.ratio = BVA/BVA[1],
+         log.BVA.ratio = log(BVA.ratio),
+         BVA.diff.rate=BVA.diff/Timepoint,
+        BVA.ratio.rate = BVA.ratio/Timepoint,
+        BVA.ratio.rate.log = log(BVA.ratio.rate) )
+
+working_df3 %>% slice(2) %>% pivot_longer(cols = c(BVA.diff, BVA.ratio ,BVA.diff.rate, log.BVA.ratio, BVA.ratio.rate, BVA.ratio.rate.log)) %>% 
+  ggplot(aes(x=value)) + geom_histogram(bins=10) + facet_grid(STUDYID~name, scales="free_x") 
+
+
+working_df4 <- vce %>%
+    arrange(STUDYID, SITE, SUBJID, OBSDATE) %>%
+  dplyr::filter(READER %in% c("MLV") | Reader %in% "MLV2.2") %>%
+    group_by(STUDYID, SITE, SUBJID) %>%
+    dplyr::mutate(Timepoint = as.numeric(difftime(OBSDATE, OBSDATE[1], units = "days"))) %>% 
+  # filter to those with two time points
+  filter(n() > 1) %>%
+  dplyr::mutate(Tertile1_Max.diff = Tertile1_Max - Tertile1_Max[1],
+         Tertile1_Max.ratio = Tertile1_Max/Tertile1_Max[1],
+         log.Tertile1_Max.ratio = log(Tertile1_Max.ratio),
+         Tertile1_Max.diff.rate=Tertile1_Max.diff/Timepoint,
+        Tertile1_Max.ratio.rate = Tertile1_Max.ratio/Timepoint,
+        Tertile1_Max.ratio.rate.log = log(Tertile1_Max.ratio.rate) )
+
+working_df4 %>% slice(2) %>% pivot_longer(cols = c(Tertile1_Max.diff, Tertile1_Max.ratio ,Tertile1_Max.diff.rate, log.Tertile1_Max.ratio, Tertile1_Max.ratio.rate, Tertile1_Max.ratio.rate.log)) %>% 
+  ggplot(aes(x=value)) + geom_histogram(bins=10) + facet_grid(STUDYID~name, scales="free_x") 
+
+
+
+working_df5 <- vce %>%
+    arrange(STUDYID, SITE, SUBJID, OBSDATE) %>%
+  dplyr::filter(READER %in% c("MLV") | Reader %in% "MLV2.2") %>%
+    group_by(STUDYID, SITE, SUBJID) %>%
+    dplyr::mutate(Timepoint = as.numeric(difftime(OBSDATE, OBSDATE[1], units = "days"))) %>% 
+  # filter to those with two time points
+  filter(n() > 1) %>%
+  dplyr::mutate(All_Mean.diff = All_Mean - All_Mean[1],
+         All_Mean.ratio = All_Mean/All_Mean[1],
+         log.All_Mean.ratio = log(All_Mean.ratio),
+         All_Mean.diff.rate=All_Mean.diff/Timepoint,
+        All_Mean.ratio.rate = All_Mean.ratio/Timepoint,
+        All_Mean.ratio.rate.log = log(All_Mean.ratio.rate) )
+
+working_df5 %>% slice(2) %>% pivot_longer(cols = c(All_Mean.diff, All_Mean.ratio ,All_Mean.diff.rate, log.All_Mean.ratio, All_Mean.ratio.rate,All_Mean.ratio.rate.log )) %>% 
+  ggplot(aes(x=value)) + geom_histogram(bins=10) + facet_grid(STUDYID~name, scales="free_x") 
+
+
+```
+
+
+```{r}
+# VHCD.diff, VHCD.ratio ,log.VHCD.ratio.rate
+# IELCOUNT.diff, log.IELCOUNT.ratio.rate
+# log.GISS.ratio, log.GISS.ratio.rate
+# BVA.diff, log.BVA.ratio.rate, log.BVA.ratio
+# Tertile1_Max.diff, log.Tertile1_Max.ratio, Tertile1_Max.ratio.rate.log
+# All_Mean.diff, All_Mean.ratio.rate.log, log.All_Mean.ratio
+```
+

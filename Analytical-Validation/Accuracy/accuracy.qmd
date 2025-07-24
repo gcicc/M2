@@ -1,0 +1,167 @@
+---
+title: "**Accuracy of MARCS `r gsub(x=gsub(x=params$this_endpoint, pattern='All_', replacement='All (tertile) '), pattern='_', replacement=' ')`**"
+author: "MARCS Crossfunctional Team"
+date: last-modified
+date-format: "MMM D, YYYY   hh:mm"
+format: 
+  pdf:
+    header-includes: 
+      \usepackage{geometry}
+      \geometry{top=0.75in,left=0.80in,bottom=0.5in,right=0.80in}
+    include-in-header: 
+      text: |
+        \usepackage{scrlayer-scrpage}
+        \cohead[{\includegraphics[height=4cm]{images/Logo.png}}]{Association of MARCS Score Relative to Comparators}
+    embed-resources: true
+    smooth-scroll: true
+    toc: true
+    toc-location: left
+    toc-title: Contents
+    toc-depth: 3
+    number-sections: true
+    number-offset: 1
+params:
+  analysis_type: "formal type of this analysis"
+  study: "a study"
+  repo_clone: "directory where the clone is"
+  input_dir: "directory for the input"
+  output_dir: "directory for the output"
+  this_endpoint: "which of the MARCS scores to use"
+execute: 
+  echo: false
+  message: false
+  warning: false
+  tbl-cap-location: top
+editor_options: 
+  chunk_output_type: console
+---
+
+\newpage
+
+The Takeda MARCS VCE tool is a semi-automated, computer-assisted small intestine villous damage scoring device that provides an effective way to implement the per-frame CE-VAST scale and the per-region MARCS, including the calculation of the individual biomarker outputs, notably BVA using white-light video VCE examinations of patients. The use of this tool is contingent upon the availability of images obtained by a compatible capsule endoscopy device. The tool includes a marking capability that inputs VCE videos and defines regions, which output may then be used by either a manual scoring tool that facilitates manual scoring, or a machine-learning algorithm (with static code) to automate scoring. 
+
+```{=tex}
+\begin{figure}
+  \caption{Schematic Depiction of the SI and Areas Evaluated by MARCS}
+  \centering
+  \includegraphics{images/BVA.png}
+  \caption*{Burden of Villous Atrophy (BVA) is the mean of the MARCS curve in Tertile 1.}
+\end{figure}
+```
+
+Validation will be conducted in multiple clinical trials. Specifically, beginning with (i) evaluation of the CE-VAST scale on a per-frame basis, (ii) analytical validation of BVA, and (iii) preliminary assessment of clinical/biological validation, including the analysis on the following study data:
+
+```{=tex}
+\begin{figure}
+  \caption{Study Calendar}
+  \centering
+  \includegraphics{images/Study_Design.png}
+  \caption*{Scheduled visits identify when data of various types is collected.}
+\end{figure}
+```
+
+\newpage
+
+```{r analysis, fig.align='center', echo=FALSE, warning=FALSE, error=FALSE}
+study <- params$study
+repo_clone <- params$repo_clone
+input_dir <- params$input_dir
+output_dir <- params$output_dir
+this_endpoint <- params$this_endpoint
+
+source(paste0(repo_clone, "/Shared-Content/preamble.R"))
+functions_path <- path(repo_clone, "Analytical-Validation", "Accuracy", "functions")
+r_files <- list.files(path=functions_path, pattern="\\.R$", full.names=TRUE)
+for (file in r_files) {
+  source(file)
+}
+table_path <- path(output_dir, "tables")
+dir.create(table_path)
+figure_path <- path(output_dir, "figures")
+dir.create(figure_path)
+
+results.ML <- list()
+
+form_merged_data_sets_output <- form_merged_data_sets(analysis_type=params$analysis_type, study=study, this_endpoint=this_endpoint, output_dir=output_dir)
+
+
+# Initialize storage lists
+
+# merged_data_sets is a list containing one entry for each IQ level.
+for (i in 1:length(form_merged_data_sets_output$merged_data_sets)) {
+  merged_data_set <- form_merged_data_sets_output$merged_data_sets[[i]]
+  label.name <- names(form_merged_data_sets_output$merged_data_sets)[i]
+  
+  # This analysis requires both ML and Human data to be present.
+  analysis.data.in.ML <- merged_data_set$merged_data.ML$merged_data.ML.full %>% mutate(label.name=label.name)
+  analysis.data.in.Human <- merged_data_set$merged_data.Human$merged_data.Human.full %>% mutate(label.name=label.name)
+  analysis.data.in <- bind_rows(analysis.data.in.ML, analysis.data.in.Human)
+  
+    results <- main_analysis(analysis.data.in=analysis.data.in, this_endpoint=this_endpoint)
+    results.ML[[length(results.ML)+1]] <- results
+    names(results.ML)[length(results.ML)] <- label.name
+  }
+
+
+```
+
+## Executive Summary
+
+The bias and linearity analysis will be performed using Deming regression (Jensen, 2007). Deming regression is a statistical technique used for fitting a line to data points when both the independent variable (x) and the dependent variable (y) have measurement errors. Unlike ordinary least squares regression, which minimizes the vertical distances between data points and the regression line, Deming regression minimizes the perpendicular (orthogonal) distances. 
+
+Let $(x_i, y_i)$ denote the paired measurements of subject $i$, where $x_i$ represents the result by the expert panel and $y_i$ represents the result from a rater. Let $\epsilon_i$ and $\delta_i$ denote the measurement error associated with each measurement.
+
+$$
+\begin{aligned}
+x_i &= X_i + \epsilon_i \\
+y_i &= Y_i + \delta_i
+\end{aligned}
+$$
+The Deming regression model is given as follows: $\hat{Y}_i = \beta_0 + \beta_1 \hat{X}_i$ where $\hat{Y}_i$, $\hat{X}_i$ are the estimates of the expected values of $X_i$ and $Y_i$, respectively, by each measurement error.
+
+```{r fig.width=6, fig.height=5, fig.align='center', echo=FALSE}
+p <- deming_plot(deming.fit = results.ML)$plot1
+p <- p + ggtitle(stringr::str_wrap(p$labels$title, width = 40))
+p
+```
+
+## Deming Regression Output
+
+```{r demographics, echo=FALSE}
+form_merged_data_sets_output$demographics %>% as_kable_extra()  %>%
+  kableExtra::kable_styling(position="center",latex_options=c("hold_position")) 
+```
+
+```{r echo=FALSE}
+deming_regression_report(deming.fit = results.ML)$plot2
+```
+
+## Bias and Linearity Analysis
+
+The following should be verified in order: Cubic term should be insignificant.  If not, check the magnitude of the cubic coefficient for practical significance in next table reporting Cubic and Quadratic Regression. Assuming statistical and/or practical insignificance, the quadratic term is then check along similar lines. The Deming Scatterplot should also be consulted for evidence of curvature.
+
+```{r}
+quad_cubic_summary(deming.fit=results.ML)
+```
+
+```{r}
+deming_bias_linearity_check(deming.fit = results.ML)
+```
+
+## Coverage Probability
+
+Let $(Y_i$ and $X_i)$  be the measured score and the true value, respectively of the $i^{th} (i = 1, ...,n)$ subject. The paired differences are defined as $d_i = Y_i - X_i$. The Coverage probability is the probability that the absolute difference between a measurement and ground truth value, $|d_i|$ being less than 0.5 will be provided.
+
+```{r}
+report_truth_coverage_CIs(deming.fit = results.ML) 
+```
+
+
+\newpage
+## Appendix: Provenance {.unnumbered}
+```{r provenance, fig.align='center', echo=FALSE}
+cat(paste("Analysis executed by", system2("whoami", stdout=TRUE, stderr=TRUE)))
+cat(str_wrap(paste("Results derived from", form_merged_data_sets_output$provenance), width=50, whitespace_only=FALSE))
+setwd(repo_clone)
+cat(str_wrap(paste("Code used for analysis was", git2r::status(repo=".", staged=TRUE, unstaged=TRUE, untracked=TRUE, ignored=FALSE, all_untracked=FALSE)), width=50, whitespace_only=FALSE))
+```

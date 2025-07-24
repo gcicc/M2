@@ -1,0 +1,1038 @@
+---
+title: "Patient selection for Bias and Linearity Module"
+format: 
+  pdf:
+     fig-numbering: FALSE
+     include-in-header:  
+        - text: |
+            \usepackage{pdflscape}
+toc: TRUE
+number-sections: TRUE
+params:
+  study: "TAK-062-2001"
+  repo_clone: "C:/Users/eri7441/OneDrive - Takeda/Documents/R-Projects/MARCS/"
+  input_dir: input_base_dir"
+  output_dir: output_base_dir"
+  printcode: FALSE
+execute: 
+  echo: FALSE
+  message: FALSE
+  warning: FALSE
+  tbl-cap-location: top
+---
+
+```{r notes-and-reminders, echo=FALSE}
+# render with printcode: TRUE will result in webshot2::webshot error
+# render with printcode: FALSE will result in pdf
+# To render graphics separately run all code chunks
+```
+
+```{r}
+analysis_type <- "Video Selection for Expert Reads"
+study <- "TAK-062-2001"
+output_dir <- path(output_base_dir,analysis_type,paste(Sys.Date(),study))
+mkdirs(output_dir)
+input_dir <- path(input_base_dir,study)
+
+# study <- params$study
+repo_clone <- params$repo_clone
+# input_dir <- params$input_dir
+source(paste0(repo_clone,"/Shared-Content/preamble.R"))
+table_path <- path(output_dir,"tables")
+dir.create(table_path)
+figure_path <- path(output_dir,"figures")
+dir.create(figure_path)
+source(path(repo_clone,"Analytical-Validation","Accuracy","functions","accuracy-setup.R"))
+```
+
+## Analysis Inputs
+
+::: callout-note
+-   Inputs discovered (with a list of the file names with full qualification, how many rows were read, how many columns)
+-   Post-join data processed (list of rows and columns post-join)
+-   Descriptive statistics of the post-join data (see note on demographics file below)
+:::
+
+## Analysis Inputs: Prepared data following ETL. 
+## Note that histology and symptoms are not needed for this analysis.
+
+```{r ETL}
+study <- "TAK-062-2001"
+ provenance <- list()
+if (study=="Milan") {
+  demog_df <- demog_milan_etl()
+  histology_df <- histology_milan_etl()
+  symptoms_df <- symptoms_milan_etl()
+  vce_df <- vce_milan_etl()
+} else if (study=="Phase0") {
+  demog_df <- demog_phase0_etl()
+  histology_df <- histology_phase0_etl()
+  symptoms_df <- symptoms_phase0_etl()
+  vce_df <- vce_phase0_etl()
+} else if (study=="TAK-062-2001") {
+  demog_df <- demog_062_2001_etl(provenance = provenance)
+  histology_df <- histology_062_2001_etl(provenance = provenance)
+  symptoms_df <- symptoms_062_2001_etl(provenance = provenance)  # This is mock data. GISS is contained in CDSD_Histology_data.xlsx
+  # vce_df <- vce_062_2001_etl() # This is not properly processing the Anatomical Marking file
+} else if (study=="Mock-Study") {
+  demog_df <- demog_mock_etl()
+  histology_df <- histology_mock_etl()
+  symptoms_df <- symptoms_mock_etl()
+  vce_df <- vce_mock_etl()
+} else {
+  print("Logic error: unsupported study")
+}
+```
+
+
+Bring in histology, symptomlog, vce df
+```{r data-sources, echo=FALSE}
+# This block should hold all incoming data-sets
+demog_df_info <- read_file_info(df = demog_df, path=NULL)
+```
+
+### Clinical and Histological Data
+
+-   Source: \~/R-Projects/MARCS/data/TAK-062-2001/GISS_Histology_data.xlsx
+-   `r #GISS_Histology_data_info$Rows`
+-   `r #GISS_Histology_data_info$Columns`
+
+```{r import-clinical, echo=FALSE, message=FALSE, warning=FALSE}
+# Need to bring this in for GISS
+CDSD_Histology_data <- read_excel(path(input_dir,"CDSD_Histology_data.xlsx"))
+```
+
+```{r AMR.report, echo=FALSE}
+# Official import of Takeda_VCE_Anatomical_Marking_Report_15Aug2024.xlsx 
+library(readxl)
+AMR <- read_excel(path(input_dir, "Takeda_VCE_Anatomical_Marking_Report_15Aug2024.xlsx"))
+AMR.report <- AMR %>% 
+  dplyr::summarize(`Number of Videos` = n(),
+            `Cecum reached` = sum(is.na(`Was the cecum reached?`) == FALSE & `Was the cecum reached?` == "Yes"),
+            `Sufficient image quality` = 
+              sum(is.na(`Was the cecum reached?`) == FALSE & `Was the cecum reached?` == "Yes" &
+                  `What was the image quality over the first third of the small bowel?` %in% c("fair", "good", "excellent") &
+                  `What was the image quality over the small bowel?` %in% c("fair", "good", "excellent")),
+            `Video at Baseline or W24` = sum(is.na(`Was the cecum reached?`) == FALSE & `Was the cecum reached?` == "Yes" &
+                  `What was the image quality over the first third of the small bowel?` %in% c("fair", "good", "excellent") &
+                  `What was the image quality over the small bowel?` %in% c("fair", "good", "excellent") & 
+                   `Imaging Timepoint` %in% c("VISIT 2 - Week -4", "VISIT 6 - Week 24") )
+            )
+```
+
+## Derived data sets
+
+### working.df
+
+```{r working.df, echo=FALSE}
+# Extract Villus Height/Crypt Depth ----
+# VHCD <- CDSD_Histology_data %>%
+#   filter(`Parameter Category 1` == "ESOPHAGOGASTRODUODENOSCOPY", 
+#          `Parameter Code` == "VHCD", 
+#          `Analysis Visit` %in% c("Baseline", "Week 24")) %>%
+#   dplyr::select(
+#     "Study Identifier",
+#     "Unique Subject Identifier",
+#     "Subject Identifier for the Study",
+#     "Study Site Identifier", 
+#     "Analysis Visit", 
+#     "Parameter", 
+#     "Parameter Code", 
+#     "Analysis Value")
+
+VHCD <- histology_df %>%
+  filter(`Parameter Category 1` == "ESOPHAGOGASTRODUODENOSCOPY", 
+         `Parameter Code` == "VHCD", 
+         `Analysis Visit` %in% c("Baseline", "Week 24")) %>%
+  dplyr::select(
+    "Study Identifier",
+    "Unique Subject Identifier",
+    "Subject Identifier for the Study",
+    "Study Site Identifier", 
+    "Analysis Visit", 
+    "Parameter", 
+    "Parameter Code", 
+    "Analysis Value")
+
+
+
+# Extract Intraepithelial Lymphocytes/Enterocytes----
+# IEL <- CDSD_Histology_data %>%
+#   filter(`Parameter Category 1` == "ESOPHAGOGASTRODUODENOSCOPY", 
+#          `Parameter Code` == "LYEPIENT", 
+#          `Analysis Visit` %in% c("Baseline", "Week 24")) %>%
+#   dplyr::select(
+#     "Study Identifier",
+#     "Unique Subject Identifier",
+#     "Subject Identifier for the Study",
+#     "Study Site Identifier", 
+#     "Analysis Visit",  
+#          "Parameter", 
+#          "Parameter Code", 
+#          "Analysis Value")
+
+IEL <- histology_df %>%
+  filter(`Parameter Category 1` == "ESOPHAGOGASTRODUODENOSCOPY", 
+         `Parameter Code` == "LYEPIENT", 
+         `Analysis Visit` %in% c("Baseline", "Week 24")) %>%
+  dplyr::select(
+    "Study Identifier",
+    "Unique Subject Identifier",
+    "Subject Identifier for the Study",
+    "Study Site Identifier", 
+    "Analysis Visit",  
+         "Parameter", 
+         "Parameter Code", 
+         "Analysis Value")
+
+# Extract CDSD GI Score Weekly ----
+GISS <- CDSD_Histology_data %>%
+  filter(`Parameter` == "CDSD GI Score Weekly",
+         `Analysis Visit` %in% c("Baseline", "Week 24")) %>%
+  dplyr::select(
+    "Study Identifier",
+    "Unique Subject Identifier",
+    "Subject Identifier for the Study",
+    "Study Site Identifier",
+    "Analysis Visit",
+         "Parameter",
+         "Parameter Code",
+         "Analysis Value")
+
+# GISS <- symptoms_df %>%
+#   filter(`Parameter` == "CDSD GI Score Weekly",
+#          `Analysis Visit` %in% c("Baseline", "Week 24")) %>%
+#   dplyr::select(
+#     "Study Identifier",
+#     "Unique Subject Identifier",
+#     "Subject Identifier for the Study",
+#     "Study Site Identifier",
+#     "Analysis Visit",
+#          "Parameter",
+#          "Parameter Code",
+#          "Analysis Value")
+
+
+# Manipulation ----
+VHCD <- VHCD %>%
+  dplyr::rename(VHCD = `Analysis Value`) %>%
+  dplyr::select("Study Identifier",
+    "Unique Subject Identifier",
+    "Subject Identifier for the Study",
+    "Study Site Identifier", 
+    "Analysis Visit",  VHCD)
+
+IEL <- IEL %>%
+  dplyr::rename(IEL = `Analysis Value`) %>%
+  dplyr::select("Study Identifier",
+    "Unique Subject Identifier",
+    "Subject Identifier for the Study",
+    "Study Site Identifier", 
+    "Analysis Visit", IEL)
+
+GISS <- GISS %>%
+  dplyr::rename(GISS = `Analysis Value`) %>%
+  dplyr::select("Study Identifier",
+    "Unique Subject Identifier",
+    "Subject Identifier for the Study",
+    "Study Site Identifier", 
+    "Analysis Visit", GISS)
+
+# Join ----
+
+working.df <- VHCD %>%
+  left_join(IEL) %>%
+  left_join(GISS)
+
+# Add protocol Vh:Cd class ----
+working.df <- working.df %>% mutate(group1 = case_when(
+  VHCD < 1.5 ~ "Moderate to Severe",
+  VHCD >= 1.5 & VHCD < 2.5 ~ "Mild to Moderate",
+  .default = "Normal"))
+
+working.df <- working.df %>% mutate(group2 = case_when(
+  GISS < 0.6 & 1 / VHCD < .5 ~ "Low",
+  GISS >= 0.6 & GISS <= 1 & 1 / VHCD > .2 & 1 / VHCD < 1 / 1.5 |
+    GISS < 0.6 & 1 / VHCD > .2 & 1 / VHCD < 1 / 1.5 ~ "Moderate",
+  .default = "High"
+))
+
+# Short names and labels ----
+lbl <- c("Study Identifier",
+                       "Unique Subject Identifier",
+                       "Subject Identifier for the Study",
+                       "Study Site Identifier",
+                       "Analysis Visit", 'Villus Height/Crypt Depth', 'Intraepithelial Lymphocytes/Enterocytes', 'GI Severity Score')
+labelled::var_label(working.df) <- split(lbl,names(working.df))
+View(working.df)
+```
+
+```{r working.df.report, echo=FALSE}
+working.df.report <- working.df %>%
+  dplyr::summarize(`Number of Unique Patient-Visit records`=n(),
+                   `Number eligible for IRT analysis` = sum(is.na(VHCD) == FALSE & is.na(IEL)== FALSE & is.na(GISS)==FALSE))
+
+working.df.report.info <- read_file_info(df=working.df, path = "working.df")
+```
+
+-   Derived from: GISS Histology data
+-   `r working.df.report.info$Rows`
+-   `r working.df.report.info$Columns`
+
+### eligible.videos
+
+```{r eligible.videos, echo=FALSE}
+eligible.videos <- AMR %>% dplyr::filter(
+  `Imaging Timepoint` %in% c("VISIT 2 - Week -4", "VISIT 6 - Week 24"),
+  is.na(`Was the cecum reached?`) == FALSE,
+  `Was the cecum reached?` == "Yes",
+  `What was the image quality over the first third of the small bowel?` %in% c("fair", "good", "excellent"),
+  `What was the image quality over the small bowel?` %in% c("fair", "good", "excellent")
+  ) %>%
+  dplyr::rename(`Analysis Visit` =`Imaging Timepoint`) %>%
+  mutate(`Analysis Visit` = ifelse(`Analysis Visit` == "VISIT 2 - Week -4", "Baseline", "Week 24")) %>%
+  dplyr::select(c("Protocol", "Site Number", "Subject ID", "Analysis Visit")) %>% 
+  dplyr::mutate(`Site Number` = as.character(`Site Number`))
+
+
+```
+
+### working.df.1
+
+```{r working.df.1, echo=FALSE}
+## Euclidean distance to create groups
+
+working.df.1 <- working.df %>%
+  filter(is.na(GISS) == FALSE, is.na(VHCD) == FALSE) %>%
+  mutate(
+    VHCD.1 = max(VHCD) - VHCD,
+    dist = sqrt(VHCD.1^2 + GISS^2),
+    dist.group = case_when(
+      dist < quantile(dist, probs = .33, na.rm = T) ~ "Low",
+      dist > quantile(dist, probs = .67, na.rm = T) ~ "High",
+      .default = "Moderate"
+    ),
+    dist.group = factor(dist.group, c("Low", "Moderate", "High")),
+    dist2 = sqrt(((VHCD.1) / sd(VHCD.1))^2 +
+      (((GISS)) / sd(GISS))^2 +
+      (((IEL)) / sd(IEL))^2),
+    dist.group2 = case_when(
+      dist2 < quantile(dist2, probs = .33, na.rm = T) ~ "Low",
+      dist2 > quantile(dist2, probs = .67, na.rm = T) ~ "High",
+      .default = "Moderate"
+    ),
+    dist.group2 = factor(dist.group2, c("Low", "Moderate", "High"))
+  )
+
+```
+
+
+### MD.check - deprecated
+
+```{r MD.check, echo=FALSE}
+### Groups based on 2-d Euclidean distance tertiles
+my.df <- data.frame(x = seq(0, 3, .001)) %>% mutate(y1 = sqrt(1.613351^2 - x^2), y2 = sqrt(2.197180^2 - x^2), dist.group = "")
+# quantile(working.df$VHCD.1, probs = c(.33, .67))
+### Mahalanobis distance 2-d
+MD.check <- working.df.1 %>%
+  dplyr::select(VHCD.1, GISS) %>%
+  mutate(
+    MD = mahalanobis(x = as.matrix(.), center = c(0, 0), cov = var(working.df.1 %>% dplyr::select(VHCD.1, GISS))),
+    MD.group = case_when(MD < 7.931394 ~ "low", MD > 14.471808 ~ "severe", .default = "moderate")
+  )
+
+# MD.check2 %>% ggplot(aes(x=VHCD.1, y=GISS, color=factor(MD.group))) + geom_point()
+# quantile(working.df$dist, probs = c(.33, .67), na.rm = T)
+MD.check.info <- read_file_info(df=MD.check, path = "MD.check")
+```
+
+-   Derived from: working.df
+-   `r MD.check.info$Rows`
+-   `r MD.check.info$Columns`
+
+### Original IRT Analysis  - deprecated
+
+```{r warnings=FALSE, message = FALSE, echo=FALSE, eval=FALSE}
+# ## Case VHCD, IEL, GISS on scale with -1*VHCD
+# Note that this is a location-shift of the transformation VHCD --> -VHCD
+# Disease burden scores are same
+for.IRT.0 <- working.df %>% 
+  mutate(VHCD = max(VHCD) - VHCD) %>%
+  mutate(VHCD = (VHCD- mean(VHCD)) / sd(VHCD),
+         IEL  = (IEL - mean(IEL)) / sd(IEL),
+         GISS = (GISS - mean(GISS, na.rm = T)) / sd(GISS, na.rm = T)) %>%
+  dplyr::rename(SUBJID = `Subject Identifier for the Study`)%>% 
+  dplyr::filter(is.na(VHCD) == FALSE, is.na(GISS) == FALSE, is.na(IEL) == FALSE)
+
+
+common.alpha.model.out.0 <- common.alpha.model(data.in = for.IRT.0 %>% dplyr::select(SUBJID, VHCD, IEL, GISS))
+
+# Grab esttheta from here
+PostEst.out.common.0 <- PosteriorEstimates(
+  grid = seq(-3, 5, .1),
+  dat = for.IRT.0 %>% dplyr::select(SUBJID, VHCD, IEL, GISS),
+  I = 3,
+  indicator = "C",
+  lin = "lin",
+  parmatrest = common.alpha.model.out.0$parmatrix,
+  stdest = common.alpha.model.out.0$stdmixt
+)
+
+collect <- working.df.1 %>% cbind(esttheta =PostEst.out.common.0$esttheta) %>% dplyr::rename(IRT.0 = esttheta)
+```
+
+### for.IRT using -VHCD, IEL, GISS
+
+```{r scaled.df3, warnings=FALSE, message = FALSE, echo=FALSE}
+# ## Case VHCD, IEL, GISS on scale with -1*VHCD
+for.IRT.1 <- working.df %>% 
+  mutate(VHCD.neg = -VHCD) %>%
+  mutate(VHCD = (VHCD - mean(VHCD)) / sd(VHCD),
+         VHCD.neg = (VHCD.neg - mean(VHCD.neg)) / sd(VHCD.neg),
+         IEL  = (IEL - mean(IEL)) / sd(IEL),
+         GISS = (GISS - mean(GISS, na.rm = T)) / sd(GISS, na.rm = T)) %>%
+  dplyr::rename(SUBJID = `Subject Identifier for the Study`)%>% 
+  dplyr::filter(is.na(VHCD) == FALSE, is.na(GISS) == FALSE, is.na(IEL) == FALSE)
+
+common.alpha.model.out.1 <- common.alpha.model(data.in = for.IRT.1 %>% dplyr::select(SUBJID, VHCD.neg, IEL, GISS))
+
+# Grab esttheta from here
+PostEst.out.common.1 <- PosteriorEstimates(
+  grid = seq(-3, 5, .1),
+  dat = for.IRT.1 %>% dplyr::select(SUBJID, VHCD.neg, IEL, GISS),
+  I = 3,
+  indicator = "C",
+  lin = "lin",
+  parmatrest = common.alpha.model.out.1$parmatrix,
+  stdest = common.alpha.model.out.1$stdmixt
+)
+
+collect <- working.df.1  %>% cbind(esttheta =PostEst.out.common.1$esttheta) %>% dplyr::rename(IRT.1 = esttheta)
+```
+
+### IRT Approach using CD:VH  - deprecated
+
+```{r eval=FALSE}
+# This is for running IRT on CDVH, IEL, GISS original scale
+for.IRT2 <- working.df %>% 
+  mutate(
+    CDVH = 1/VHCD,
+    CDVH = (CDVH - mean(CDVH)) / sd(CDVH),
+         IEL  = (IEL - mean(IEL)) / sd(IEL),
+         GISS = (GISS - mean(GISS, na.rm = T)) / sd(GISS, na.rm = T)) %>%
+  dplyr::rename(SUBJID = `Subject Identifier for the Study`)%>% 
+  dplyr::filter(is.na(VHCD) == FALSE, is.na(GISS) == FALSE, is.na(IEL) == FALSE)
+
+common.alpha.model.out.2 <- common.alpha.model(data.in = for.IRT2 %>% dplyr::select(SUBJID, CDVH, IEL, GISS))
+
+PostEst.out.common.2 <- PosteriorEstimates(
+  grid = seq(-3, 5, .1),
+  dat = for.IRT2 %>% dplyr::select(SUBJID, VHCD, IEL, GISS),
+  I = 3,
+  indicator = "C",
+  lin = "lin",
+  parmatrest = common.alpha.model.out.2$parmatrix,
+  stdest = common.alpha.model.out.2$stdmixt
+)
+
+collect <- collect %>% cbind(esttheta =PostEst.out.common.2$esttheta) %>% dplyr::rename(IRT.2 = esttheta)
+```
+
+## IRT after shifted box-cox transformation  - deprecated
+
+```{r eval=FALSE}
+library(MASS)
+for.IRT.3 <- working.df %>% dplyr::mutate(VHCD.t0 = VHCD - min(VHCD) + 1)
+boxcox_result <- boxcox(for.IRT.3$VHCD.t0 ~ 1)
+lambda <- boxcox_result$x[which.max(boxcox_result$y)]
+for.IRT.3 <- for.IRT.3 %>% dplyr::mutate(VHCD.t1 = (VHCD.t0^lambda - 1) / lambda,
+                                         VHCD.t2 = (mean(VHCD.t1)- VHCD.t1)/sd(VHCD.t1),
+                                          IEL  = (IEL - mean(IEL)) / sd(IEL),
+                                         GISS = (GISS - mean(GISS, na.rm = T)) / sd(GISS, na.rm = T)
+                                         )%>%
+  dplyr::rename(SUBJID = `Subject Identifier for the Study`)%>% 
+  dplyr::filter(is.na(VHCD) == FALSE, is.na(GISS) == FALSE, is.na(IEL) == FALSE)
+
+# ## Case VHCD - min(VHCD) + 1 followed by box-cox, IEL, GISS
+common.alpha.model.out.3 <- common.alpha.model(data.in = for.IRT.3 %>% dplyr::select(SUBJID, VHCD.t2, IEL, GISS))
+
+# Model is returning all zeros
+PostEst.out.common.3 <- PosteriorEstimates(
+  grid = seq(-3, 5, .1),
+  dat = for.IRT.3 %>% dplyr::select(SUBJID, VHCD.t2, IEL, GISS),
+  I = 3,
+  indicator = "C",
+  lin = "lin",
+  parmatrest = common.alpha.model.out.3$parmatrix,
+  stdest = common.alpha.model.out.3$stdmixt
+)
+
+ggpairs(for.IRT.3 %>% dplyr::select(6:8,13))
+
+collect <- collect %>% cbind(esttheta =PostEst.out.common.3$esttheta) %>% dplyr::rename(IRT.3 = esttheta)
+
+ggpairs(collect %>% dplyr::select(6:8, 17:19))
+```
+
+
+## Factor Analysis using VHCD and comparing with CD:VH  - deprecated
+
+```{r eval=FALSE}
+# working.df.1 holds original endpoints
+fa_result.vhcd <- fa(working.df.1 %>% dplyr::select(VHCD, IEL, GISS), nfactors = 2, rotate = "varimax")
+
+factor_scores.vhcd <- data.frame(fa_result.vhcd$scores) %>% dplyr::mutate(FA.1 = MR1 + MR2)
+loadings.vhcd <- fa_result.vhcd$loadings
+fa_result.vhcd
+
+fa_result.cdvh <- fa(for.IRT2 %>% dplyr::select(CDVH, IEL, GISS), nfactors = 2, rotate = "varimax")
+factor_scores.cdvh <- data.frame(fa_result.cdvh$scores) %>% mutate(FA.2 = MR1 + MR2)
+
+```
+
+## PCA using VHCD 
+
+```{r}
+KMO(cor(for.IRT.1 %>% dplyr::select(VHCD, IEL, GISS)))
+# This works out
+cortest.bartlett(cor(for.IRT.1 %>% dplyr::select(VHCD, IEL, GISS)), n = nrow(for.IRT.1))
+
+# These result in loadings that differ by a negative signs in some places
+# the principal component scores are identical
+pca_result.1 <- prcomp(x=as.matrix(for.IRT.1 %>% dplyr::select(VHCD.neg, IEL, GISS)))
+pca_result.1$x <- data.frame(pca_result.1$x ) %>% dplyr::mutate(PCA.1 = PC1 + PC2)
+names(pca_result.1$x) <- paste0(names(pca_result.1$x), ".VHCD")
+summary(pca_result.1)
+
+
+pca_result.2 <- prcomp(x=as.matrix(for.IRT.1 %>% dplyr::select(VHCD, IEL, GISS)))
+pca_result.2$x <- data.frame(pca_result.2$x ) %>% dplyr::mutate(PCA.2 = PC1 + PC2)
+names(pca_result.2$x) <- paste0(names(pca_result.2$x), ".VHCD")
+summary(pca_result.2)
+
+# Only differ in the column names
+all.equal((pca_result.2$x), (pca_result.1$x))
+```
+
+### Exercise adding 27 edge cases
+
+```{r}
+# Subset 
+temp <- for.IRT.1 %>% dplyr::select(VHCD, IEL, GISS) 
+t.VHCD <- as.vector(quantile(temp$VHCD, probs = c(.05, .5, .95)))
+t.IEL <- as.vector(quantile(temp$IEL, probs = c(.05, .5, .95)))
+t.GISS <- as.vector(quantile(temp$GISS, probs = c(.05, .5, .95)))
+expand.grid(VHCD = t.VHCD, IEL = t.IEL, GISS = t.GISS)
+
+
+test.IRT.1 <- rbind(temp, expand.grid(VHCD = t.VHCD, IEL = t.IEL, GISS = t.GISS))
+pca_result.test <- prcomp(x=as.matrix(test.IRT.1))
+pca_result.test$x <- data.frame(pca_result.test$x ) %>% dplyr::mutate(PCA.test = PC1 + PC2)
+
+for.plot <- test.IRT.1 %>% cbind(PCA.test=pca_result.test$x$PCA.test) %>% cbind(group = c(rep(0, 201), rep(1,27)))
+for.plot  %>% dplyr::filter(group==1) %>% ggpairs(columns =1:4 , aes(color=factor(group)))
+
+for.plot %>%  ggpairs(columns =1:4 , aes(color=factor(group), alpha=.5))
+```
+
+
+
+```{r}
+# Here we pull together original data and results disease burden scores from IRT, FA, PCA
+
+comparison <- working.df.1 %>% dplyr::select(1:8) %>% 
+  mutate(CDVH = 1/VHCD) %>% 
+  cbind(IRT.1 = PostEst.out.common.1$esttheta) %>% 
+  # cbind(IRT.2 = PostEst.out.common.2$esttheta) %>% 
+  # cbind(FA.1 = factor_scores.vhcd$FA.1) %>% 
+  # cbind(FA.2 = factor_scores.cdvh$FA.2) %>%
+  cbind(PCA.1 = pca_result.1$x$PCA.1) %>% 
+  dplyr::mutate(PCA.2 = -PCA.1)
+
+
+
+comparison %>% ggpairs(c(6:8, 10, 11,12), title="IRT, PCA comparison: VHCD, IEL, GISS") 
+```
+
+```{r}
+# Highly correlated disease burden scores, though CD:VD exhibts trimodal distribution
+comparison %>% ggpairs(c(6:8, 10, 11), title="IRT, PCA comparison: VHCD, IEL, GISS") 
+```
+
+
+
+```{r}
+
+comparison <- comparison %>% mutate(PCA.G1 = (case_when(PCA.1 < quantile(comparison$PCA.1, probs = .33) ~ "T1", 
+                                         PCA.1 > quantile(comparison$PCA.1, probs = .66) ~ "T3",
+                                         .default = "T2")),
+                                    PCA.G2 = (case_when(PCA.1 < quantile(comparison$PCA.1, probs = .5) ~ "lowerhalf", 
+                                         .default = "upperhalf"))
+                                    
+                                    )
+comparison %>% ggpairs(columns=c(6:8, 10,14), aes(color = PCA.G1, alpha =.5))
+
+
+```
+
+### Videos.IRT
+
+```{r}
+IRT.summary <- for.IRT.1 %>%
+  mutate(esttheta = PostEst.out.common.1$esttheta) %>%
+  mutate(IRT.group = factor(case_when(
+    esttheta < quantile(esttheta, .33) ~ "Low",
+    esttheta > quantile(esttheta, .67) ~ "High",
+    .default = "Moderate"
+  ), c("Low", "Moderate", "High"))) 
+
+IRT.summary.subset <-   IRT.summary %>% 
+    dplyr::select(`Study Identifier`, `Study Site Identifier`, `SUBJID`, `Analysis Visit`, IRT.group) %>%
+    dplyr::rename(Protocol = `Study Identifier`,
+                  `Site Number` = `Study Site Identifier`,
+                  `Subject ID` = `SUBJID`)
+
+Videos.IRT <- eligible.videos %>% left_join(IRT.summary.subset) %>% arrange(`Analysis Visit`) %>% dplyr::filter(is.na(IRT.group) == FALSE)
+Videos.IRT.info <- read_file_info(df=Videos.IRT, path = "Videos.IRT")
+```
+
+-   Derived from: eligible.videos, IRT.summary.subset
+-   `r Videos.IRT.info$Rows`
+-   `r Videos.IRT.info$Columns`
+
+### for.vendor
+
+```{r patient-selection, echo=FALSE}
+set.seed(8675309)
+High <- Videos.IRT %>% 
+  dplyr::filter(IRT.group == "High") %>% 
+  sample_n(size = n()) %>%
+  group_by(`Subject ID`) %>% slice(1) 
+
+Low <- Videos.IRT %>% dplyr::filter(IRT.group == "Low", 
+                                    !(`Subject ID` %in% High$`Subject ID`)) %>%
+   sample_n(size = n()) %>%
+  group_by(`Subject ID`) %>% slice(1) %>% ungroup() %>%
+  sample_n(size = 24)
+
+Moderate <- Videos.IRT %>% dplyr::filter(IRT.group == "Moderate", 
+                                    !(`Subject ID` %in% union(High$`Subject ID`,Low$`Subject ID`)))  %>%
+   sample_n(size = n()) %>%
+  group_by(`Subject ID`) %>% slice(1) %>% ungroup() %>%
+  sample_n(size = 26)
+
+
+for.vendor <- bind_rows(High, Low, Moderate) %>% sample_n(size = n()) %>% dplyr::select(- IRT.group) %>%
+  dplyr::mutate(`Analysis Visit` = ifelse(`Analysis Visit` == "Baseline", "VISIT 2 - Week -4", "VISIT 6 - Week 24"))
+for.vendor.info <- read_file_info(df=for.vendor, path = "for.vendor")
+```
+
+-   Derived from: Videos.IRT
+-   `r for.vendor.info$Rows`
+-   `r for.vendor.info$Columns`
+
+### chosen.subjects
+
+```{r}
+chosen.subjects <- for.vendor %>% mutate(`Analysis Visit` = ifelse(`Analysis Visit` == "VISIT 2 - Week -4", "Baseline", "Week 24")) %>%
+  dplyr::rename(SUBJID= `Subject ID` ) %>% left_join(IRT.summary) %>% 
+  dplyr::select(- c(VHCD, IEL, GISS)) %>% left_join(working.df) %>% left_join(demographics_data)
+
+chosen.subjects.info <- read_file_info(df=chosen.subjects, path = "chosen.subjects")
+```
+
+-   Derived from: for.vendor, IRT.summary, working.df, demographics_data
+-   `r chosen.subjects.info$Rows`
+-   `r chosen.subjects.info$Columns`
+
+\newpage
+
+```{r chosen.subjects.table.build}
+chosen.subjects.table <- chosen.subjects %>% ungroup() %>% dplyr::select(VHCD, IEL, GISS, IRT.group) %>% 
+  tbl_summary(by=IRT.group) %>% as_gt() %>% tab_footnote("Source dataset: chosen.subjects") %>%
+  tab_header(title = "Summary Statistics of Histological and Symptology Endpoints")
+my.tables <- list(chosen.subjects.table=chosen.subjects.table)
+```
+
+```{r chosen.subjects.table.file, eval=params$printcode, echo=FALSE}
+# Here we know that this table will be table 1
+table.count <- 1
+chosen.subjects.dtable <- prefix.title(chosen.subjects.table , prefix = paste0("Table ", table.count, ": "))
+my.tables$chosen.subjects.dtable <- chosen.subjects.dtable
+```
+
+```{r chosen.subjects.demog.table.build, message=FALSE, warning=FALSE, echo=FALSE}
+chosen.subjects.demog.table <- chosen.subjects %>%
+  ungroup() %>%
+  dplyr::select(ARM, AGE, SEX, RACE, ETHNIC) %>%
+  tbl_summary(by = ARM) %>%
+  as_gt() %>%
+  tab_footnote("Data Source: chosen.subjects") %>%
+  tab_header(title = "Demographics")
+my.tables$chosen.subjects.demog.table <- chosen.subjects.demog.table
+```
+
+```{r chosen.subjects.demog.table.file, eval=params$printcode, echo=FALSE}
+# Here we know that this table will be table 2
+table.count <- 2
+chosen.subjects.demog.dtable <- prefix.title(chosen.subjects.demog.table , prefix = paste0("Table ", table.count, ": "))
+my.tables$chosen.subjects.demog.dtable <- chosen.subjects.demog.dtable
+```
+
+```{r chosen.subjects.pairs.figure.build, message=FALSE, warning=FALSE, echo=FALSE}
+chosen.subjects.pairs <- ggpairs(chosen.subjects[,c(10,11,13:15)])
+chosen.subjects.pairs$title <- paste0("Endpoints of subjects selected for\nBias & Linearity Module")
+my.figures <- list(chosen.subjects.pairs=chosen.subjects.pairs)
+```
+
+```{r f.density.vhcd.build, echo=FALSE}
+f.density.vhcd <- working.df %>% ggplot(aes(x = VHCD)) +
+  geom_density() +
+  geom_rug() +
+  geom_vline(xintercept = c(1.5, 2.5)) +
+  labs(
+    title = "Density Plot of Villus Height/Crypt Depth",
+    subtitle = "Protocol v4: Mild to Moderate (1.5 <= Vh:Cd < 2.5)\nModerate to Severe (Vh:Cd < 1.5)",
+    caption = "Source: GISS_Histology_data.xlsx"
+  ) +
+  easy_labs()
+
+my.figures$f.density.vhcd <- f.density.vhcd
+```
+
+```{r}
+f.density.vhcd <- working.df %>% ggplot(aes(x = 1/VHCD)) +
+  geom_density() +
+  geom_rug() +
+  geom_vline(xintercept = c(1.5, 2.5)) +
+  labs(
+    title = "Density Plot of Crypt Depth/Villus Height",
+    caption = "Source: GISS_Histology_data.xlsx"
+  ) +
+  easy_labs()
+
+my.figures$f.density.vhcd <- f.density.vhcd
+```
+
+```{r f.density.IEL.build, echo=FALSE}
+f.density.IEL <- working.df %>%
+  ggplot(aes(x = IEL)) +
+  geom_density() +
+  geom_rug() +
+  easy_labs() +
+  labs(title = paste("Density of", attributes(working.df$IEL)$label), caption = "Source: GISS_Histology_data.xlsx")
+my.figures$f.density.IEL <- f.density.IEL
+```
+
+```{r f.GISS.build, echo=FALSE}
+f.GISS <- working.df %>%
+  ggplot(aes(x = GISS)) +
+  geom_density() +
+  geom_rug() +
+  labs(x = "GISS", y = "", 
+       title = "Density Plot of GI Severity Score", 
+       caption = "Source: GISS_Histology_data.xlsx") +
+  easy_labs()
+my.figures$f.GISS <- f.GISS
+```
+
+```{r f.sp.vhcd.cdsd.build, echo=FALSE}
+f.sp.vhcd.cdsd <- working.df %>%
+  mutate(IEL.Tert = case_when(IEL < quantile(IEL, .33) ~ 1,
+    IEL > quantile(IEL, .66) ~ 3,
+    .default = 2
+  )) %>%
+  ggplot(aes(x = VHCD, y = GISS)) +
+  geom_point() +
+  labs(
+    title = "Vh:Cd vs. GI Severity Score",
+    caption = "Horizontal Lines at 33rd and 66th percentiles\nVertical Lines at 1.5 and 2.5 per Protocol\nSource: GISS_Histology_data.xlsx"
+  ) +
+  geom_vline(xintercept = c(1.5, 2.0)) +
+  geom_hline(yintercept = c(0.6, 1)) +
+  easy_labs()
+my.figures$f.sp.vhcd.cdsd <- f.sp.vhcd.cdsd
+```
+
+```{r f.sp.euclid.2d.build, echo=FALSE}
+f.sp.euclid.2d <- working.df.1 %>% ggplot(aes(x = VHCD.1, y = GISS, color = factor(dist.group))) +
+  geom_point() +
+  geom_line(data = my.df, aes(x = x, y = y1), color = "black", linewidth = 1) +
+  geom_line(data = my.df, aes(x = x, y = y2), color = "black", linewidth = 1) +
+  labs(
+    x = "max(Vh:Cd) - Vh:Cd", y = "GISS", title = "max(Vh:Cd) - Vh:Cd vs. GISS",
+    subtitle = "Euclidean Distance includes GISS, Vh:Cd\n33rd and 67th percentiles are used to create groups", color = "Disease Burden Group"
+  ) +
+  geom_hline(yintercept = c(.6, 1), linetype = 2) +
+  geom_vline(xintercept = c(1.613351, 2.197180), linetype = 2) + easy_labs()
+
+f.sp.euclid.2d <- f.sp.euclid.2d + labs(caption = "Source dataset: working.df.1")
+my.figures$f.sp.euclid.2d <- f.sp.euclid.2d
+```
+
+```{r f.sp.euclid.3d.build, echo=FALSE}
+f.sp.euclid.3d <- working.df.1 %>% ggplot(aes(x = VHCD.1, y = GISS, color = factor(dist.group2))) +
+  geom_point() +
+  geom_line(data = my.df, aes(x = x, y = y1), color = "black", linewidth = 1) +
+  geom_line(data = my.df, aes(x = x, y = y2), color = "black", linewidth = 1) +
+  labs(
+    x = "max(Vh:Cd) - Vh:Cd", y = "GI Severity Score", title = "max(Vh:Cd) - Vh:Cd vs. GI Severity Score",
+    subtitle = "Euclidean Distance includes IEL, GI Severity Score, Vh:Cd\n33rd and 67th percentiles are used to create groups", color = "Disease Burden Group"
+  ) +
+  geom_hline(yintercept = c(.6, 1), linetype = 2) +
+  geom_vline(xintercept = c(1.613351, 2.197180), linetype = 2) + easy_labs()
+
+f.sp.euclid.3d <- f.sp.euclid.3d + labs(caption = "Source dataset: working.df.1")
+my.figures$f.sp.euclid.3d <- f.sp.euclid.3d
+```
+
+```{r f.sp.md.2d.build, message=FALSE, warning=FALSE, echo=FALSE}
+### Mahalanobis distance 2-d
+f.sp.md.2d <- MD.check %>% ggplot(aes(x = VHCD.1, y = GISS, color = factor(MD.group))) +
+  geom_point() +
+  geom_line(data = my.df, aes(x = x, y = y1), color = "black", linewidth = 1) +
+  geom_line(data = my.df, aes(x = x, y = y2), color = "black", linewidth = 1) +
+  labs(
+    x = "max(Vh:Cd) - Vh:Cd", y = "GI Severity Score", title = "max(Vh:Cd) - Vh:Cd vs. GISS",
+    subtitle = "Distance from Origin is used a Disease burden metric\n33rd and 67th percentiles are used to create groups", color = "Disease Burden Group"
+  ) +
+  xlim(c(0, 3.25)) +
+  ylim(c(0, 3.25)) +
+  geom_hline(yintercept = c(.6, 1), linetype = 2) +
+  geom_vline(xintercept = c(1.613351, 2.197180), linetype = 2) +
+  easy_labs()
+
+f.sp.md.2d <- f.sp.md.2d + labs(caption = "Source dataset: MD.check")
+my.figures$f.sp.md.2d <- f.sp.md.2d
+```
+
+```{r f.spm.cont.build, message=FALSE, echo=FALSE}
+f.spm.cont <- ggpairs(PostEst.out.common.1 %>% dplyr::select(-SUBJID), title="Scatterplot Matrix\nTreating patient burder as continuous")
+f.spm.cont <- f.spm.cont + labs(caption="Source dataset: PostEst.out.common.1\nesttheta: IRT-based disease burden\nGISS: GI Severity Score")
+my.figures$f.spm.cont <- f.spm.cont
+```
+
+```{r f.spm.cat.build, message=FALSE, warning=FALSE, echo=FALSE}
+f.spm.cat <- ggpairs(PostEst.out.common.1 %>% 
+          dplyr::select(-SUBJID) %>% 
+          mutate(esttheta = factor(esttheta)), title="Scatterplot Matrix\nTreating patient burder as categorical")
+f.spm.cat <- f.spm.cat + labs(caption = "Source dataset: PostEst.out.common.1")
+my.figures$f.spm.cat <- f.spm.cat
+```
+
+```{r patient.char.table, eval=TRUE, echo=FALSE}
+patient.characteristics <- working.df %>% dplyr::select(- c(`Subject Identifier for the Study`, group1, group2)) %>% 
+  dplyr::select(- c(`Unique Subject Identifier`, `Study Site Identifier`)) %>%
+  tbl_summary(by=`Analysis Visit`, 
+              statistic = list(
+      all_continuous() ~ "{mean} ({sd})",
+      all_categorical() ~ "{n} / {N} ({p}%)"
+    ))%>% add_n() %>%  add_overall() |>
+  bold_labels() %>% as_gt() %>% tab_footnote("Source: working.df") %>%
+  tab_header(title="Patient Characteristics")
+
+my.tables$patient.characteristics <- patient.characteristics
+```
+
+```{r patient.char.dtable, eval=params$printcode, echo=FALSE}
+# Here we know that this table will be table 2
+table.count <- 3
+patient.characteristics.dtable <- prefix.title(patient.characteristics , prefix = paste0("Table ", table.count, ": "))
+my.tables$patient.characteristics.dtable <- patient.characteristics.dtable
+```
+
+```{r t.AMR.report, echo=FALSE}
+t.AMR.report <- AMR.report %>%
+  pivot_longer(cols = 1:4, values_to = "Number of Videos") %>%
+  dplyr::rename(Restriction = name) %>%
+  gt() %>%
+  tab_header(title = "Status of Videos") %>%
+  tab_footnote(footnote = "Source file: Takeda_VCE_Anatomical_Marking_Report_15Aug2024.xlsx")
+my.tables$t.AMR.report <- t.AMR.report
+```
+
+```{r t.status.clin.endpoints, echo=FALSE}
+t.status.clin.endpoints <- working.df.report %>%
+  pivot_longer(cols = 1:2) %>%
+  gt() %>%
+  tab_header("Status of Clinical Endpoints") %>%
+  tab_footnote("Source: GISS_Histology_data.xlsx")
+my.tables$t.status.clin.endpoints <- t.status.clin.endpoints
+```
+
+```{r tables.to.file, eval=params$printcode, echo=FALSE}
+for(i in 1:length(my.tables)){
+  output_string <- replace_whitespace_colon_with_dash(my.tables[[i]]$`_heading`$title)
+  gtsave(my.tables[[i]], path=table_path, filename = paste0(output_string, ".png"))
+  gtsave(my.tables[[i]], path=table_path, filename = paste0(output_string, ".pdf"))
+  gtsave(my.tables[[i]], path=table_path, filename = paste0(output_string, ".rtf"))
+}
+```
+
+```{r plots.to.file, eval=params$printcode, echo=FALSE}
+save_plot <- function(plot) {
+  output_string <- replace_whitespace_colon_with_dash(plot$labels$title)
+  ggsave(
+    filename = paste0(figure_path, "/", output_string, ".png"), 
+    plot = plot, 
+    width = 6, 
+    height = 4, 
+    dpi = 300
+  )
+}
+sapply(my.figures, save_plot)
+```
+
+```{r patient-selection-out, eval=params$printcode, echo=FALSE}
+write.csv(for.vendor, "Patient-Selection-for-Set-A.csv")
+```
+
+## Synopsis
+
+::: callout-note
+### Template instructions
+
+-   Most relevant output from everything that follows, determined by how it affects the validation of the biomarker as a whole (in this case, a statement of how many videos for each stratum were found and selected)
+-   Specific “Pass” vs “Fail” of relevant acceptance criteria (in this case, fewer than the sample size desired was found for two strata, but the shortfall is judged to not unduly compromise the results)
+-   One selected graphic (the most representative of the entire analysis, in this case, a graphic of the selected videos in terms of the input variables Vh:Cd, IEL, and GISS)
+-   The visual legend (see below)
+:::
+
+::: callout-important
+### Topline Summary
+
+-   An Item Response Theory exercise that included Vh:Cd, Intraepithelial Lymphocytes/Enterocytes, and GI Severity Score was conducted to identify low, moderate and high disease burden groups.
+-   The target allocation was to identify 24 from each group.
+-   Restrictions included:
+    -   no duplicate subjects
+    -   video quality: cecum reached, fair or better quality in first tertitle, fair or better quality over entire bowel
+-   Result of exercise:
+    -   22 high, 26 moderate, and 24 low disease unique patients-visit records were identified.
+:::
+
+![](output/Video-selection/tables/Table-1---Summary-Statistics-of-Histological-and-Symptology-Endpoints.png){fig-align="center"}
+
+![](output/Video-selection/tables/Table-2---Demographics.png){fig-align="center"}
+
+\newpage
+
+```{r chosen.subjects.pairs.out, echo=FALSE}
+# Add prefix
+figure.count <- figure.count+1
+my.figures$chosen.subjects.pairs$title <- paste0("Figure ", figure.count,": ", my.figures$chosen.subjects.pairs$title)
+my.figures$chosen.subjects.pairs 
+```
+
+### Candidate Biomarker Description
+
+Burden of Villous Atrophy (BVA), the proposed biomarker of treatment response for Celiac disease (CeD) patients undergoing treatment is the smoothed and weighted summary (weighted average) of the MARCS curve calculated for the first tertile of the small bowel.
+
+**Summary of the MARCS biomarker**
+
+|                       |                                                                                                                                                                                                                   |
+|-------------------|-----------------------------------------------------|
+| Biomarker Name        | Burden of Villous Atrophy                                                                                                                                                                                         |
+| Acronym               | BVA by MARCS                                                                                                                                                                                                      |
+| Source                | VCE images of the Small Bowel                                                                                                                                                                                     |
+| Type                  | Imaging                                                                                                                                                                                                           |
+| Biologic Plausibility | MARCS measurands are proportional to the presence and severity of villous atrophy. Many publications verify that clinicians can identify celiac changes on VCE.                                                   |
+| Measurement Method    | Multi-frame processing from VCE in a defined region, in particular, to compute the BVA, computed as the area under the MARCS curve for the first tertile of the small bowel after normalization for bowel length. |
+| Units of Measurement  | Continuous value on the CE-VAST scale (from 0 – 3 signifying none, mild, moderate, severe) but allowing fractional values.                                                                                        |
+
+![](images/BVA.png){fig-align="center"}
+
+BVA: BVA, computed as the area under the MARCS curve for the first tertile of the small bowel after normalization for bowel length. VCE videos comprise frames from proximal to distal, shown as blue dots. “Frame scores” are according to the Celiac Enteropathy-Villous Atrophy Scale Test (CE-VAST) scale. The approach produces a “MARCS curve,” formed as the smoothed and weighted summary (weighted average) of the frame scores over defined regions, and as such, represents the intensity of the disease along defined regions or the entire small intestine. These curves are a graphical representation and serve as the basis for derived biomarkers that provide the framework to relate VCE findings with clinical data. Specifically, there are five distinct regions: the “first 5%”, “Tertile 1”, “Tertile 2”, Tertile 3”, and “entire small bowel.” All regions have frame scores, and all but the first 5% have MARCS curves and corresponding summary outputs like mean and maximum. The first 5% is not represented by a curve for the same reasons that biopsy is limited. Namely, it depends more on specific locations than the other regions; frame scores are still relevant, but summary calculations are of limited relevance.
+
+## Detailed Results
+
+::: callout-note
+### Template Instructions
+
+-   Graphs first, tables second.
+-   All of the legends, identifiers, etc., conform strictly to the visual legend
+-   All graphs and tables also output as separate formatted files
+-   Careful attention to aesthetics: colors, fonts, alignments, etc… fastidiousness now helps credibility as we proceed, and win acceptance in the objectives these contribute to.
+:::
+
+### Figures
+
+```{r f.density.vhcd.out}
+figure.count <- figure.count+1
+my.figures$f.density.vhcd %>% prefix.title(prefix = paste0("Figure ", figure.count, ": "))
+```
+
+```{r f.density.IEL.out}
+figure.count <- figure.count+1
+my.figures$f.density.IEL %>% prefix.title(prefix = paste0("Figure ", figure.count, ": "))
+```
+
+```{r f.GISS.out}
+figure.count <- figure.count+1
+my.figures$f.GISS %>% prefix.title(prefix = paste0("Figure ", figure.count, ": "))
+```
+
+```{r f.sp.vhcd.cdsd.out}
+figure.count <- figure.count+1
+my.figures$f.sp.vhcd.cdsd$labels$title <- paste0("Figure ", figure.count,": ", my.figures$f.sp.vhcd.cdsd$labels$title)
+my.figures$f.sp.vhcd.cdsd
+```
+
+```{r f.sp.euclid.2d.out}
+figure.count <- figure.count+1
+my.figures$f.sp.euclid.2d$labels$title <- paste0("Figure ", figure.count,": ", my.figures$f.sp.euclid.2d$labels$title)
+my.figures$f.sp.euclid.2d
+```
+
+```{r f.sp.euclid.3d.out}
+figure.count <- figure.count+1
+my.figures$f.sp.euclid.3d$labels$title <- paste0("Figure ", figure.count,": ", my.figures$f.sp.euclid.3d$labels$title)
+my.figures$f.sp.euclid.3d
+```
+
+```{r f.sp.md.2d.out}
+figure.count <- figure.count+1
+my.figures$f.sp.md.2d$labels$title <- paste0("Figure ", figure.count,": ", my.figures$f.sp.md.2d$labels$title)
+my.figures$f.sp.md.2d
+```
+
+```{r f.spm.cont.out}
+figure.count <- figure.count+1
+my.figures$f.spm.cont$title <- paste0("Figure ", figure.count,": ", my.figures$f.spm.cont$title)
+my.figures$f.spm.cont
+```
+
+```{r f.spm.cat.out}
+figure.count <- figure.count+1
+my.figures$f.spm.cat$title <- paste0("Figure ", figure.count,": ", my.figures$f.spm.cat$title)
+my.figures$f.spm.cat
+```
+
+### Tables
+
+```{r}
+# Placeholder for Table 3
+```
+
+![](output/Video-selection/tables/Table-3---Patient-Characteristics.png){fig-align="center"}
+
+```{r t.AMR.report.out}
+table.count <- 4
+my.tables$t.AMR.report %>% prefix.title(prefix = paste0("Table ", table.count, ": "))
+```
+
+## Analysis Context
+
+::: callout-note
+### Template Instructions
+
+-   Version of the module code used (checkpoint information from git)
+-   Date on which the report was run
+-   Who ran the report
+-   Location of output
+:::
+
+-   Version of the module code used (checkpoint information from git): XX.X
+-   Date of report: `r Sys.Date()`
+-   Report run by: Greg Cicconetti
+-   Figure Output location: `r figure_path`
+-   Table Output location: `r table_path`

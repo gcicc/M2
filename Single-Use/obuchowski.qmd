@@ -1,0 +1,72 @@
+---
+title: "obuchowski practice"
+format: html
+editor: visual
+---
+
+```{r}
+my.df <- data.frame(SUBJID = 1:80, MARCS = sample(0:3, 80, replace=TRUE), GS = rnorm(80,0,1))
+
+phi <- c()
+for(i in 1:80){
+  for(j in 1:80){
+    temp = ifelse(my.df$GS[i] > my.df$GS[j] & my.df$MARCS[i] > my.df$MARCS[j], 1,
+                  ifelse(my.df$GS[i] == my.df$GS[j] | my.df$MARCS[i] == my.df$MARCS[j], .5, 0))
+    phi <- c(phi, temp)
+  }
+}
+
+theta.hat = sum(phi)/(80*(80-1))
+
+holdit <- apply(X = matrix(1:80), MARGIN = 1, FUN = function(x){
+  i <- x
+  phi.prime <- c()
+   for(j in 1:80){
+    temp = ifelse(my.df$GS[i] > my.df$GS[j] & my.df$MARCS[i] > my.df$MARCS[j], 1,
+                  ifelse(my.df$GS[i] == my.df$GS[j] | my.df$MARCS[i] == my.df$MARCS[j], .5, 0))
+    phi.prime <- c(phi.prime, temp)
+  } 
+  phi.prime
+})
+
+diag(holdit) <- 0
+holdit
+var.theta <- 1/(80/2*(80/2 - 1))*sum(colSums(holdit)/79 - theta.hat)^2
+sqrt(var.theta)
+
+theta.hat - 1.96*sqrt(var.theta)
+theta.hat + 1.96*sqrt(var.theta)
+
+```
+
+```{r}
+install.packages("nnet")
+install.packages("mgcv")
+install.packages("quantreg")
+install.packages("systemfit")
+install.packages("foreign")
+install.packages("car")
+install.packages("Rcpp")
+library(foreign)
+library(systemfit)
+
+hsb2 <- read.dta("https://stats.idre.ucla.edu/stat/stata/notes/hsb2.dta")
+
+r1 <- read~female + as.numeric(ses) + socst
+r2 <- math~female + as.numeric(ses) + science
+
+r3 <- math ~ female + as.numeric(ses) + socst + science
+summary(lm(r3, data=hsb2))
+
+fitsur <- systemfit(list(readreg = r1, mathreg = r2), data=hsb2)
+summary(fitsur)
+
+```
+
+We may be interested in comparing the effect of female on read, controlling for ses and socst, to the effect of female on math, controlling for ses and science. For this, we will use the linear.hypothesis command from the car package. To do this, we create a “restriction” on the model system. We will force the coefficient of female to be the same in both equations and then compare such a system fit to the one seen when the coefficients are not equal.
+
+```{r}
+library(car)
+restriction <- "readreg_femalefemale- mathreg_femalefemale"
+linearHypothesis(fitsur, restriction, test = "Chisq")
+```

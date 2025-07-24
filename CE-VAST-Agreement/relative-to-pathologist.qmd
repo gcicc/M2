@@ -1,0 +1,326 @@
+---
+title: "**Agreement of MARCS `r gsub(x=gsub(x=params$this_endpoint, pattern='All_', replacement='All (tertile) '), pattern='_', replacement=' ')` with Path Phenotypes in `r gsub(x=params$study, pattern='_', replacement=' ')`**"
+author: "MARCS Crossfunctional Team"
+date: last-modified
+date-format: "MMM D, YYYY   hh:mm"
+format: 
+  pdf:
+    header-includes: 
+      - \usepackage{geometry}
+      - \geometry{top=0.75in,left=0.80in,bottom=0.5in,right=0.80in}
+      - \usepackage{float}  # Added for precise float control
+    include-in-header: 
+      text: |
+        \usepackage{scrlayer-scrpage}
+        \cohead[{\includegraphics[height=4cm]{images/Logo.png}}]{Agreement of MARCS Score Relative to Path}
+    embed-resources: true
+    smooth-scroll: true
+    toc: true
+    toc-location: left
+    toc-title: Contents
+    toc-depth: 3
+    number-sections: true
+    number-offset: 1
+params:
+  analysis_type: "formal type of this analysis"
+  study: "a study"
+  repo_clone: "directory where the clone is"
+  input_dir: "directory for the input"
+  output_dir: "directory for the output"
+  this_endpoint: "which of the MARCS scores to use"
+execute: 
+  echo: false
+  message: false
+  warning: false
+  tbl-cap-location: top
+editor_options: 
+  chunk_output_type: console
+---
+
+\clearpage
+
+The Takeda MARCS VCE tool is a semi-automated, computer-assisted small intestine villous damage scoring device that provides an effective way to implement the per-frame CE-VAST scale and the per-region MARCS, including the calculation of the individual biomarker outputs, notably BVA using white-light video VCE examinations of patients. The use of this tool is contingent upon the availability of images obtained by a compatible capsule endoscopy device. The tool includes a marking capability that inputs VCE videos and defines regions, which output may then be used by either a manual scoring tool that facilitates manual scoring, or a machine-learning algorithm (with static code) to automate scoring. 
+
+```{=tex}
+\begin{figure}
+  \caption{Schematic Depiction of the SI and Areas Evaluated by MARCS}
+  \centering
+  \includegraphics{images/BVA.png}
+  \caption*{Burden of Villous Atrophy (BVA) is the mean of the MARCS curve in Tertile 1.}
+\end{figure}
+```
+
+Validation will be conducted in multiple clinical trials. Specifically, beginning with (i) evaluation of the CE-VAST scale on a per-frame basis, (ii) analytical validation of BVA, and (iii) preliminary assessment of clinical/biological validation, including the analysis on the following study data:
+
+```{=tex}
+\begin{figure}
+  \caption{Study Calendar}
+  \centering
+  \includegraphics{images/Study_Design.png}
+  \caption*{Scheduled visits identify when data of various types is collected.}
+\end{figure}
+```
+
+The analysis documented here is also performed on other studies undertaken by the franchise.
+
+\clearpage
+
+```{r analysis, echo=FALSE, warning=FALSE, error=FALSE}
+study <- params$study
+repo_clone <- params$repo_clone
+input_dir <- params$input_dir
+output_dir <- params$output_dir
+this_endpoint <- params$this_endpoint
+
+source(paste0(repo_clone, "/Shared-Content/preamble.R"))
+functions_path <- path(repo_clone, "CE-VAST-Agreement", "functions")
+r_files <- list.files(path=functions_path, pattern="\\.R$", full.names=TRUE)
+for (file in r_files) {
+  source(file)
+}
+table_path <- path(output_dir, "tables")
+dir.create(table_path)
+figure_path <- path(output_dir, "figures")
+dir.create(figure_path)
+
+form_merged_data_sets_output <- form_merged_data_sets(analysis_type=params$analysis_type, study=study, this_endpoint=this_endpoint, output_dir=output_dir)
+
+kappa.report.ML <- list()
+analysis.data.in_ext.ML <- list()
+kappa.report.ML.byRandStat <- list()
+kappa.report.ML.byPairing <- list()
+kappa.report.ML.byArm <- list()
+
+kappaplot.ML <- list()
+kappaplot.ML.byRandStat <- list()
+kappaplot.ML.byPairing <- list()
+kappaplot.ML.byArm <- list()
+
+kappa.report.Human <- list()
+kappa.report.Human.byRandStat <- list()
+kappa.report.Human.byPairing <- list()
+kappa.report.Human.byArm <- list()
+
+kappaplot.Human <- list()
+analysis.data.in_ext.Human <- list()
+kappaplot.Human.byRandStat <- list()
+kappaplot.Human.byPairing <- list()
+kappaplot.Human.byArm <- list()
+
+# merged_data_sets is a list containing one entry for each IQ level.
+for (i in 1:length(form_merged_data_sets_output$merged_data_sets)) { 
+  merged_data_set <- form_merged_data_sets_output$merged_data_sets[[i]]
+  label.name <- names(form_merged_data_sets_output$merged_data_sets)[i]
+  # Set a loop
+  for (reader_type in c("ML")){
+    if (reader_type == "ML") {
+      analysis.data.in <- merged_data_set$merged_data.ML$merged_data.ML.full
+    } else if (nrow(merged_data_set$merged_data.Human$merged_data.Human.full) > 10) {
+      analysis.data.in <- merged_data_set$merged_data.Human$merged_data.Human.full
+    } else {
+      next
+    }
+    
+    results <- main_analysis(analysis.data.in=analysis.data.in, reader_type=reader_type)
+    write.csv(results$analysis.data.in_ext, path(output_dir, paste0("8 analysis.data.in_ext-", reader_type, "-", label.name, ".csv")), row.names=FALSE)
+
+    if (reader_type == "ML") {
+      kappa.report.ML[[length(kappa.report.ML)+1]] <- results$kappa.report
+      names(kappa.report.ML)[length(kappa.report.ML)] <- label.name
+      analysis.data.in_ext.ML[[length(analysis.data.in_ext.ML)+1]] <- results$analysis.data.in_ext
+      names(analysis.data.in_ext.ML)[length(analysis.data.in_ext.ML)] <- label.name
+      kappaplot.ML[[length(kappaplot.ML)+1]] <- results$kappaplot
+      names(kappaplot.ML)[length(kappaplot.ML)] <- label.name
+      
+      if (!is.null(results$kappa.report.byRandStat)) {
+        kappa.report.ML.byRandStat[[length(kappa.report.ML.byRandStat)+1]] <- results$kappa.report.byRandStat
+        names(kappa.report.ML.byRandStat)[length(kappa.report.ML.byRandStat)] <- label.name
+        kappaplot.ML.byRandStat[[length(kappaplot.ML.byRandStat)+1]] <- results$kappaplot.byRandStat
+        names(kappaplot.ML.byRandStat)[length(kappaplot.ML.byRandStat)] <- label.name
+      }
+     
+      if (!is.null(results$kappaplot.byPairing)) {
+        kappa.report.ML.byPairing[[length(kappa.report.ML.byPairing)+1]] <- results$kappa.report.byPairing
+        names(kappa.report.ML.byPairing)[length(kappa.report.ML.byPairing)] <- label.name
+        kappaplot.ML.byPairing[[length(kappaplot.ML.byPairing)+1]] <- results$kappaplot.byPairing
+        names(kappaplot.ML.byPairing)[length(kappaplot.ML.byPairing)] <- label.name
+      }
+      
+       if (!is.null(results$kappaplot.byArm)) {
+        kappa.report.ML.byArm[[length(kappa.report.ML.byArm)+1]] <- results$kappa.report.byArm
+        names(kappa.report.ML.byArm)[length(kappa.report.ML.byArm)] <- label.name
+        kappaplot.ML.byArm[[length(kappaplot.ML.byArm)+1]] <- results$kappaplot.byArm
+        names(kappaplot.ML.byArm)[length(kappaplot.ML.byArm)] <- label.name
+      }
+    } else {
+      kappa.report.Human[[length(kappa.report.Human)+1]] <- results$kappa.report
+      names(kappa.report.Human)[length(kappa.report.Human)] <- label.name
+      analysis.data.in_ext.Human[[length(analysis.data.in_ext.Human)+1]] <- results$analysis.data.in_ext
+      names(analysis.data.in_ext.Human)[length(analysis.data.in_ext.Human)] <- label.name
+      kappaplot.Human[[length(kappaplot.Human)+1]] <- results$kappaplot
+      names(kappaplot.Human)[length(kappaplot.Human)] <- label.name
+      
+      if (!is.null(results$kappa.report.byRandStat)) {
+        kappa.report.Human.byRandStat[[length(kappa.report.Human.byRandStat)+1]] <- results$kappa.report.byRandStat
+        names(kappa.report.Human.byRandStat)[length(kappa.report.Human.byRandStat)] <- label.name
+        kappaplot.Human.byRandStat[[length(kappaplot.Human.byRandStat)+1]] <- results$kappaplot.byRandStat
+        names(kappaplot.Human.byRandStat)[length(kappaplot.Human.byRandStat)] <- label.name
+      }
+      
+      if (!is.null(results$kappa.report.byPairing)) {
+        kappa.report.Human.byPairing[[length(kappa.report.Human.byPairing)+1]] <- results$kappa.report.byPairing
+        names(kappa.report.Human.byPairing)[length(kappa.report.Human.byPairing)] <- label.name
+        kappaplot.Human.byPairing[[length(kappaplot.Human.byPairing)+1]] <- results$kappaplot.byPairing
+        names(kappaplot.Human.byPairing)[length(kappaplot.Human.byPairing)] <- label.name
+      }
+      
+      if (!is.null(results$kappa.report.byArm)) {
+        kappa.report.Human.byArm[[length(kappa.report.Human.byArm)+1]] <- results$kappa.report.byArm
+        names(kappa.report.Human.byArm)[length(kappa.report.Human.byArm)] <- label.name
+        kappaplot.Human.byArm[[length(kappaplot.Human.byArm)+1]] <- results$kappaplot.byArm
+        names(kappaplot.Human.byArm)[length(kappaplot.Human.byArm)] <- label.name
+      }
+    }
+  } # ML or Human
+} # for each IQ level
+```
+
+## Executive Summary for Machine Learning Reads
+
+We assess the agreement between histology-determined phenotypes by Esophagogastroduodenoscopy (EGD) biopsy samples and MARCS score derived from VCE videos. This agreement is estimated using Cohen's kappa coefficient ($\kappa$, lowercase Greek kappa), a statistic that is used for qualitative (categorical) items in its weighted form to take into account greater penalty for larger disagreement (that is, calling a class which is very different from the reference class as opposed to calling a class which is nearer).
+
+The MARCS score used here is determined from the first 5% of the segmented video, representing the region routinely biopsied with EGD. The MARCS score is on the CE-VAST scale, resulting in the weighted $\kappa$ to evaluate the ability of CE-VAST to align with pathologist-determined Marsh-Oberhuber type. Measures of agreement are also presented for HLA_DQ, HLA_G phenotypes if available in the study data.
+
+```{r pathologist-agreement-executive-summary.ML, echo=FALSE}
+generate_kappa_exec_summary(kappa.summary.in=kappa.report.ML, reader_type="ML")
+```
+
+```{r kappa_exec_fig.ML, echo=FALSE}
+forPDF <- NULL
+forPDF <- generate_kappa_fig(kappa.report.ML, reader_type="ML")
+if (!is.null(forPDF)) {
+  ggsave(forPDF, filename=path(figure_path, "pathologist-agreement-executive-summary.ML.png"))
+  forPDF
+}
+```
+
+\clearpage
+## Stratified Analyses
+
+### by Randomization
+```{r agreement-byRandomization.ML, echo=FALSE}
+byRandomization <- NULL
+byRandomization <- generate_kappa_bystratum(kappa.summary.in=kappa.report.ML.byRandStat, reader_type="ML", stratifier="RandStat")
+if (!is.null(byRandomization)) {
+  byRandomization
+}
+```
+```{r patholoagreement-byRandomization.ML.fig, echo=FALSE}
+forPDF <- NULL
+forPDF <- generate_kappa_fig_bystratum(kappa.summary.in=kappa.report.ML.byRandStat, reader_type="ML", stratifier="RandStat")
+if (!is.null(forPDF)) {
+  forPDF
+}
+```
+```{r agreement-byRandomization-empty, echo=FALSE}
+if (is.null(byRandomization)) {
+  cat("Stratification by randomization status not possible on the basis of available study data.")
+}
+```
+
+\clearpage
+### by Visit
+```{r pathologist-agreement-byPairing.ML, echo=FALSE}
+byPairing <- NULL
+byPairing <- generate_kappa_bystratum(kappa.summary.in=kappa.report.ML.byPairing, reader_type="ML", stratifier="Pairing")
+if (!is.null(byPairing)) {
+  byPairing
+}
+```
+```{r pathologist-agreement-byPairing.ML.fig, echo=FALSE}
+forPDF <- NULL
+forPDF <- generate_kappa_fig_bystratum(kappa.summary.in=kappa.report.ML.byPairing, reader_type="ML", stratifier="Pairing")
+if (!is.null(forPDF)) {
+  forPDF
+}
+```
+```{r pathologist-agreement-byPairing.ML-empty, echo=FALSE}
+if (is.null(byPairing)) {
+  cat("Stratification by visit not possible on the basis of available study data.")
+}
+```
+
+\clearpage
+### by Arm
+```{r agreement-byArm.ML, echo=FALSE}
+byArm <- NULL
+byArm <- generate_kappa_bystratum(kappa.summary.in=kappa.report.ML.byArm, reader_type="ML", stratifier="Arm")
+if (!is.null(byArm)) {
+  byArm
+}
+```
+```{r pathologist-agreement-byArm.ML.fig, echo=FALSE}
+forPDF <- NULL
+forPDF <- generate_kappa_fig_bystratum(kappa.summary.in=kappa.report.ML.byArm, reader_type="ML", stratifier="Arm")
+if (!is.null(forPDF)) {
+  forPDF
+}
+```
+```{r pathologist-agreement-byArm.ML-empty, echo=FALSE}
+if (is.null(byArm)) {
+  cat("Stratification by arm not possible on the basis of available study data.")
+}
+```
+
+<!-- 
+NO HUMAN FOR NOW \clearpage
+## Details for Human Reads
+```{r pathologist-agreement-executive-summary.Human, echo=FALSE}
+exec_summary.Human <- NULL
+exec_summary.Human <- generate_kappa_exec_summary(kappa.summary.in=kappa.report.Human, reader_type="Human")
+if (!is.null(exec_summary.Human)) {
+  exec_summary.Human
+}
+```
+```{r kappa_exec_fig.Human, echo=FALSE}
+fig.out <- generate_kappa_fig(kappa.summary.in=kappa.report.Human, reader_type="Human")
+if (!is.null(fig.out)) {
+  fig.out
+}
+```{r pathologist-agreement-executive-summary-Human-empty, echo=FALSE}
+if (is.null(exec_summary.Human)) {
+  cat("Human reader analyses not possible on the basis of available study data.")
+}
+``` 
+-->
+
+\clearpage
+## Demographic Make-up for Subjects in this Slice
+
+```{r subject-counts, echo=FALSE}
+write.csv(form_merged_data_sets_output$counts, file=path(table_path, "subject_counts.csv"))
+subject.counts <- form_merged_data_sets_output$counts %>%
+  gt() %>%
+  tab_header(title="Counts of Subjects and Observations")
+gt::gtsave(subject.counts, filename=path(table_path, "subject_counts.formatted.png"))
+subject.counts
+```
+```{r demographics, echo=FALSE}
+form_merged_data_sets_output$demographics %>% as_gt() %>%
+  cols_width(everything() ~ px(90))
+```
+
+### Views to Support Actionable Insights
+```{r relationship.plot, fig.width=6, fig.height=8, echo=FALSE}
+generate_kappa_relationship_plot(analysis.data.in_ext.ML[[1]], "ML", this_endpoint)
+```
+
+\clearpage
+
+## Appendix: Provenance {.unnumbered}
+```{r provenance, fig.align='center', echo=FALSE}
+cat(paste("Analysis executed by", system2("whoami", stdout=TRUE, stderr=TRUE)))
+cat(str_wrap(paste("Results derived from", form_merged_data_sets_output$provenance), width=50, whitespace_only=FALSE))
+setwd(repo_clone)
+cat(str_wrap(paste("Code used for analysis was", git2r::status(repo=".", staged=TRUE, unstaged=TRUE, untracked=TRUE, ignored=FALSE, all_untracked=FALSE)), width=50, whitespace_only=FALSE))
+```

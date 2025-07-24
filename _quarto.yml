@@ -1,0 +1,2 @@
+project:
+  output-dir: C:/Users # can't hard code this, here I truncated it to see if anythign amiss happens

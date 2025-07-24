@@ -1,0 +1,358 @@
+---
+title: "**Proportion of Treament Effect Explained by MARCS `r gsub(x=gsub(x=params$this_endpoint, pattern='All_', replacement='All (tertile) '), pattern='_', replacement=' ')` vs. Other Markers in `r gsub(x=params$study, pattern='_', replacement=' ')`**"
+author: "MARCS Crossfunctional Team"
+date: last-modified
+date-format: "MMM D, YYYY   hh:mm"
+format: 
+  pdf:
+    header-includes: 
+      \usepackage{geometry}
+      \geometry{top=0.75in,left=0.80in,bottom=0.5in,right=0.80in}
+    include-in-header: 
+      text: |
+        \usepackage{scrlayer-scrpage}
+        \cohead[{\includegraphics[height=4cm]{images/Logo.png}}]{Proportion of Treatment Effect Explained}
+    embed-resources: true
+    smooth-scroll: true
+    toc: true
+    toc-location: left
+    toc-title: Contents
+    toc-depth: 3
+    number-sections: true
+    number-offset: 1
+params:
+  analysis_type: "formal type of this analysis"
+  study: "a study"
+  repo_clone: "directory where the clone is"
+  input_dir: "directory for the input"
+  output_dir: "directory for the output"
+  this_endpoint: "which of the MARCS scores to use"
+execute: 
+  echo: false
+  message: false
+  warning: false
+  tbl-cap-location: top
+editor_options: 
+  chunk_output_type: console
+---
+
+\newpage
+
+The Takeda MARCS VCE tool is a semi-automated, computer-assisted small intestine villous damage scoring device that provides an effective way to implement the per-frame CE-VAST scale and the per-region MARCS, including the calculation of the individual biomarker outputs, notably BVA using white-light video VCE examinations of patients. The use of this tool is contingent upon the availability of images obtained by a compatible capsule endoscopy device. The tool includes a marking capability that inputs VCE videos and defines regions, which output may then be used by either a manual scoring tool that facilitates manual scoring, or a machine-learning algorithm (with static code) to automate scoring. 
+
+```{=tex}
+\begin{figure}
+  \caption{Schematic Depiction of the SI and Areas Evaluated by MARCS}
+  \centering
+  \includegraphics{images/BVA.png}
+  \caption*{Burden of Villous Atrophy (BVA) is the mean of the MARCS curve in Tertile 1.}
+\end{figure}
+```
+
+Validation will be conducted in multiple clinical trials. Specifically, beginning with (i) evaluation of the CE-VAST scale on a per-frame basis, (ii) analytical validation of BVA, and (iii) preliminary assessment of clinical/biological validation, including the analysis on the following study data:
+
+```{=tex}
+\begin{figure}
+  \caption{Study Calendar}
+  \centering
+  \includegraphics{images/Study_Design.png}
+  \caption*{Scheduled visits identify when data of various types is collected.}
+\end{figure}
+```
+
+The analysis documented here is also performed on other studies undertaken by the franchise.
+
+\newpage
+
+```{r analysis, echo=FALSE, warning=FALSE, error=FALSE}
+study <- params$study
+repo_clone <- params$repo_clone
+input_dir <- params$input_dir
+output_dir <- params$output_dir
+this_endpoint <- params$this_endpoint
+
+source(paste0(repo_clone, "/Shared-Content/preamble.R"))
+functions_path <- path(repo_clone, "Clinical-Biological-Validation", "proportion-explained", "functions")
+r_files <- list.files(path=functions_path, pattern="\\.R$", full.names=TRUE)
+for (file in r_files) {
+  source(file)
+}
+table_path <- path(output_dir, "tables")
+dir.create(table_path)
+figure_path <- path(output_dir, "figures")
+dir.create(figure_path)
+
+form_merged_data_sets_output <- form_merged_data_sets(analysis_type=params$analysis_type, study=study, this_endpoint=this_endpoint, output_dir=output_dir)
+
+surrog.ML.full <- list()
+model.ML.full <- list()
+figures.ML.full <- list()
+surrog.ML.train <- list()
+model.ML.train <- list()    
+model.fit.out.ML <- list()
+figures.ML.train <- list()
+
+surrog.Human.full <- list()
+model.Human.full <- list()
+figures.Human.full <- list()
+surrog.Human.train <- list()
+model.Human.train <- list()    
+figures.Human.train <- list()
+model.fit.out.Human <- list()
+
+# merged_data_sets is a list containing one entry for each IQ level.
+for (i in 1:length(form_merged_data_sets_output$merged_data_sets)) { 
+  merged_data_set <- form_merged_data_sets_output$merged_data_sets[[i]]
+  label.name <- names(form_merged_data_sets_output$merged_data_sets)[i]
+  # Set a loop
+  for (reader_type in c("ML")) {#, "Human")) {
+    if (reader_type == "ML") {
+      analysis.data.in <- merged_data_set$merged_data.ML$merged_data.ML.full %>% dplyr::mutate(`Image Quality`=label.name)
+    } else if (nrow(merged_data_set$merged_data.Human$merged_data.Human.full) > 10) {
+      analysis.data.in <- merged_data_set$merged_data.Human$merged_data.Human.full %>% dplyr::mutate(`Image Quality`=label.name)
+    } else {
+      next
+    }
+
+    results <- main_analysis(analysis.data.in=analysis.data.in, reader_type=reader_type, this_endpoint=this_endpoint)
+
+    if (reader_type == "ML") {
+      # This will be used for output
+      surrog.ML.full[[length(surrog.ML.full)+1]] <- results$surrog.full
+      names(surrog.ML.full)[length(surrog.ML.full)] <- label.name
+      figures.ML.full[[length(figures.ML.full)+1]] <- results$fig.full
+      names(figures.ML.full)[length(surrog.ML.full)] <- label.name
+
+      # This we can simply record
+      model.ML.full[[length(model.ML.full)+1]] <- results$model.full
+      names(model.ML.full)[length(model.ML.full)] <- label.name
+      
+      # Of secondary interest for now
+      surrog.ML.train[[length(surrog.ML.train)+1]] <- results$surrog.train
+      names(surrog.ML.train)[length(surrog.ML.train)] <- label.name
+      figures.ML.train[[length(figures.ML.train)+1]] <- results$fig.train
+      names(figures.ML.train)[length(surrog.ML.train)] <- label.name
+      
+      model.ML.train[[length(model.ML.train)+1]] <- results$model.train
+      names(model.ML.train)[length(model.ML.train)] <- label.name
+      
+      model.fit.out.ML[[length(model.fit.out.ML)+1]] <- results$model.fit.out
+      names(model.fit.out.ML)[length(model.fit.out.ML)] <- label.name
+      
+    } else {
+      # This will be used for output
+      surrog.Human.full[[length(surrog.Human.full)+1]] <- results$surrog.full
+      names(surrog.Human.full)[length(surrog.Human.full)] <- label.name
+      figures.Human.full[[length(figures.Human.full)+1]] <- results$fig.full
+      names(figures.Human.full)[length(surrog.Human.full)] <- label.name
+
+      # This we can simply record
+      model.Human.full[[length(model.Human.full)+1]] <- results$model.full
+      names(model.Human.full)[length(model.Human.full)] <- label.name
+      
+      # Of secondary interest for now
+      surrog.Human.train[[length(surrog.Human.train)+1]] <- results$surrog.train
+      names(surrog.Human.train)[length(surrog.Human.train)] <- label.name
+      figures.Human.train[[length(figures.Human.train)+1]] <- results$fig.train
+      names(figures.Human.train)[length(surrog.Human.train)] <- label.name
+      
+      model.Human.train[[length(model.Human.train)+1]] <- results$model.train
+      names(model.Human.train)[length(model.Human.train)] <- label.name
+      
+      model.fit.out.Human[[length(model.fit.out.Human)+1]] <- results$model.fit.out
+      names(model.fit.out.Human)[length(model.fit.out.Human)] <- label.name
+    }    
+  } # ML or Human
+} # for each IQ level
+```
+
+## Executive Summary for Machine Learning Reads
+
+In this analysis we evaluate the effectiveness of the MARCS score S as a surrogate endpoint in capturing the effect of a treatment on a clinical endpoint T that is presumed true. We do so by using the evolving understanding of how to evaluate surrogacy, in three seminal works. In 1989 Prentice formalized a set of criteria to address treatment-adjusted association between the surrogate and the true endpoint. In 1992, Freedman added Proportion Explained (PE). In 2000, Buyse and Molenberghs further elaborated a distinction between "individual level" when data from a single trial is used, and "trial level" when data from several trials is available, and added the Relative Effect (RE, defined as the ratio of the effects of treatment upon the true clinical and the surrogate endpoints) and the Adjusted Association ($\rho_{Z}$, defined as the individual-level association between the true and the surrogate endpoints, after adjusting for the effect of treatment). This analysis module evaluates statistics from all three, but is named after Freedman's PE given it as the statistic to focus on if only one statistic is used.
+
+```{r surrog-exec-table-ML-full, fig.width=6, fig.height=5, fig.align='center', echo=FALSE}
+highlight <- "Disease Burden Change"
+exec.table.out <- report.surrog.statistics(surrog.in=surrog.ML.full, highlight=highlight)
+exec.table.out
+```
+In summary, the following estimates and associated 95% CIs:
+
+1. To document adherence to the Prentice Criteria, we test the following hypotheses:
+
+   - The effect of Surrogate Endpoint (S) on the Comparator (T) based on a _simple linear model_.
+   - The effect of Treatment or Gluten Challenge (Z) on S based on a _bivariate regression model_.
+   - The effect of Z on T based on a _bivariate regression model_.
+   - The effect of S on T after adjusting for Z based on an _extended linear model_.
+   - The effect of Z on T after adjusting for S based on an _extended linear model_.
+
+2. We proceed to Freedman's extension, computing the Proportion of treatment effect explained by the surrogate endpoint (PE).
+
+3. We also compute Buyse and Molenberghs' extension:
+
+   - Relative efficiency of the surrogate endpoint (RE).
+   - The association between the surrogate and true endpoint post-treatment adjustment ($\rho_{Z}$).
+
+```{r surrog-criteria-summary-fig-exec-ML-full, fig.width=5.5, fig.height=5, fig.align='center', echo=FALSE}
+surrog.table.out <- surrog.criteria.exec.summary.fig(surrog.in=exec.table.out)
+surrog.table.out[[2]]
+```
+
+### Interpretation of Results
+
+The Prentice criteria are associated with the following 3 models:
+
+I. The _Effect of S on T_ is obtained from a Simple Linear Model to explain True endpoint via Surrogate: $$T=\mu + \delta S + \epsilon$$
+II. The _Effect of Z on S_ and the _Effect of Z on T_ arise from a Bivariate Regression Model including the impact of treatment on Surrogate and Comparator where error terms are correlated, with variances and covariance given by $\sigma_{SS}^2, \sigma_{TT}^2, \sigma_{ST}^2$.
+$$
+\begin{aligned}
+S=\mu_S + \alpha Z + \epsilon_S \\
+T=\mu_T + \beta Z + \epsilon_T
+\end{aligned}$$
+
+III. The _Effect of S on T after adjusting for Z_ and the _Effect of Z on T after adjusting for S_ arise from an Extended Linear Model including surrogate and treatment: $$T=\tilde{\mu}_T + \beta_S Z+ \gamma_Z S + \tilde{\epsilon}_T$$
+
+Proportion Explained, Relative efficiency, and the treatment adjusted association are given by $PE = \frac{\beta-\beta_S}{\beta}$, $RE = \frac{\alpha}{\beta}$ and $\rho_Z = \frac{\sigma_{ST}}{\sqrt{\sigma_{SS}\sigma_{TT}}}$, respectively, with estimates obtained by replacing the parameters with their estimates.
+
+If PE=1, S fully explains the treatment effect on the true endpoint (the entire effect of the treatment on T can be attributed to its effect on S). If PE=0, S does not explain any of the treatment effect on the true endpoint (S provides no information about T). If PE is between 0 and 1, S partially explains the treatment effect on the true endpoint. The closer PE is to 1, the better the surrogate captures the treatment effect. A surrogate would be deemed acceptable if the lower limit of the confidence interval of PE was “sufficiently” close to one. A large value of $\rho_{Z}$ would provide indirect evidence that the surrogate is plausible on biological grounds, since the true endpoint would then be largely determined by the surrogate endpoint regardless of any treatment effect. It can be shown that PE will tend to be unstable when the treatment effect on the true endpoint is close to zero. Additionally, it can be shown that its value is dependent on is the ratio of variances for True and Surrogate endpoints implying PE may take on arbitrary values. This motivates consideration of RE, the effect of Z on T relative to that of Z on S. A surrogate is said to be perfect at the individual level when there is a perfect association between the surrogate and the final endpoint after adjustment for treatment. A surrogate is said to be perfect at the population level if RE is 1.
+
+When Z is treatment we anticipate estimates for the effect of Z to be negative, thereby decreasing the disease burden candidate and surrogate whose larger values are associated with greater disease severity. Conversely, when Z is a therapeutic treatment we anticipate estimates for Z (here now associated with a higher level of therapeutic effect) to be negative and contributing to a decrease disease burden or conversely, when Z is a gluten challenge we anticipate estimates for Z (here now associated with a higher level of gluten challenge) to be positive and contributing to an increase disease burden.
+
+```{r prentice-suite-db, fig.width=6, fig.height=5, fig.align='center', echo=FALSE}
+temp <- figures.ML.full[[1]]$Disease_Burden
+plot(temp[[1]])
+```
+
+We note that the scope corresponds with the "individual level" because it uses single trial data, as a stepping stone to more comprehensive analysis across multiple trials as that data is available. 
+
+### Views to Support Actionable Insights
+```{r interval-distributions, fig.width=6, fig.height=9, fig.align='center', out.extra='angle=-90', echo=FALSE}
+generate_interval.distributions_plot(form_merged_data_sets_output$global_analysis_set_out)
+```
+
+\newpage
+## Surrogacy Analysis Across Other Comparators
+```{r surrog-table-full, fig.width=8, fig.height=11, fig.align='center', echo=FALSE}
+surrog.table.out <- report.surrog.statistics(surrog.in=surrog.ML.full)
+```
+```{r surrog-fig-full-ML, fig.width=6, fig.height=5, fig.align='center', echo=FALSE}
+fig.out <- surrog.criteria.summary.fig(surrog.in=surrog.table.out)
+fig.out[[2]]
+```
+\newpage
+### Vh:Cd
+```{r surrog-exec-table-ML-VHCD, fig.width=6, fig.height=3.5, fig.align='center', echo=FALSE}
+highlight <- "Vh:Cd"
+exec.table.out <- report.surrog.statistics(surrog.in=surrog.ML.full, highlight=highlight)
+gt::gtsave(exec.table.out, filename=path(table_path, paste0("surrog-exec-table of S (", this_endpoint, ") and T (", highlight, ")-ML-full.png")))
+exec.table.out
+```
+```{r prentice-suite-VHCD, fig.width=6, fig.height=5, fig.align='center', echo=FALSE}
+temp <- figures.ML.full[[1]]$VHCD
+plot(temp[[1]])
+```
+\newpage
+### IEL Count
+```{r surrog-exec-table-ML-IELCOUNT, fig.width=6, fig.height=3.5, fig.align='center', echo=FALSE}
+highlight <- "IEL Count"
+exec.table.out <- report.surrog.statistics(surrog.in=surrog.ML.full, highlight=highlight)
+gt::gtsave(exec.table.out, filename=path(table_path, paste0("surrog-exec-table of S (", this_endpoint, ") and T (", highlight, ")-ML-full.png")))
+exec.table.out
+```
+```{r prentice-suite-IELCOUNT, fig.width=6, fig.height=5, fig.align='center', echo=FALSE}
+temp <- figures.ML.full[[1]]$IELCOUNT
+plot(temp[[1]])
+```
+\newpage
+### GI Severity Score
+```{r surrog-exec-table-ML-GISS, fig.width=6, fig.height=3.5, fig.align='center', echo=FALSE}
+highlight <- "GI Severity Score"
+exec.table.out <- report.surrog.statistics(surrog.in=surrog.ML.full, highlight=highlight)
+gt::gtsave(exec.table.out, filename=path(table_path, paste0("surrog-exec-table of S (", this_endpoint, ") and T (", highlight, ")-ML-full.png")))
+exec.table.out
+```
+```{r prentice-suite-GISS, fig.width=6, fig.height=5, fig.align='center', echo=FALSE}
+temp <- figures.ML.full[[1]]$GISS
+plot(temp[[1]])
+```
+\newpage
+### VCIEL
+```{r surrog-exec-table-ML-VCIEL, fig.width=6, fig.height=3.5, fig.align='center', echo=FALSE}
+highlight <- "VCIEL"
+exec.table.out <- report.surrog.statistics(surrog.in=surrog.ML.full, highlight=highlight)
+gt::gtsave(exec.table.out, filename=path(table_path, paste0("surrog-exec-table of S (", this_endpoint, ") and T (", highlight, ")-ML-full.png")))
+exec.table.out
+```
+```{r prentice-suite-VCIEL, fig.width=6, fig.height=5, fig.align='center', echo=FALSE}
+temp <- figures.ML.full[[1]]$VCIEL
+plot(temp[[1]])
+```
+\newpage
+### Aggregate Histology
+```{r surrog-exec-table-ML-Agg_Histology, fig.width=6, fig.height=3.5, fig.align='center', echo=FALSE}
+highlight <- "Aggregate Histology"
+exec.table.out <- report.surrog.statistics(surrog.in=surrog.ML.full, highlight=highlight)
+gt::gtsave(exec.table.out, filename=path(table_path, paste0("surrog-exec-table of S (", this_endpoint, ") and T (", highlight, ")-ML-full.png")))
+exec.table.out
+```
+```{r prentice-suite-Agg_Histology, fig.width=6, fig.height=5, fig.align='center', echo=FALSE}
+temp <- figures.ML.full[[1]]$Agg_Histology
+plot(temp[[1]])
+```
+
+\newpage
+## Assessing Generalizability
+```{r surrog-table-train, fig.width=6, fig.height=5, fig.align='center', echo=FALSE}
+if (!is.null(model.fit.out.ML[1][[1]])) {
+  cat("Models are run on training data set comprising 20% of the data and predictions are made on the remaining 80% of the data. The results are summarized below.")
+  surrog.table.out <- report.surrog.statistics(surrog.in=surrog.ML.train)
+  gt::gtsave(surrog.table.out, filename=path(table_path, paste0("surrog-table of S (", this_endpoint, ") and comparators-ML-train.png")))
+  surrog.table.out
+
+  fig.out <- surrog.criteria.summary.fig(surrog.in=surrog.table.out)
+  S <- gsub(".*Surrogacy Criteria for (.*) as surrogate for.*", "\\1", exec.table.out$`_heading`$title)
+  ggsave(fig.out[[2]], filename=path(figure_path, paste0("surrog-criteria-summary-fig-", S, " for all comparators-", reader_type, "-train.png")))
+  fig.out[[2]]
+
+  fig.out <- model.metrics.fig(model.metric.in=model.fit.out.ML)
+  ggsave(fig.out, filename=path(figure_path, paste0("model.metrics.fig.png")))
+  fig.out
+} else {
+  cat("Train/test split not possible on the basis of available sample size.")
+}
+```
+
+\newpage
+## Demographic Make-up for Subjects in this Slice
+```{r subject-counts, fig.align='center', echo=FALSE}
+write.csv(form_merged_data_sets_output$counts, file=path(table_path, "subject_counts.csv"))
+subject.counts <- form_merged_data_sets_output$counts %>%
+  gt() %>%
+  tab_header(title="Counts of Subjects and Observations")
+gt::gtsave(subject.counts, filename=path(table_path, "subject_counts.formatted.png"))
+subject.counts
+```
+```{r demographics, fig.align='center', echo=FALSE}
+form_merged_data_sets_output$demographics %>% as_kable_extra()  %>%
+  kableExtra::kable_styling(position="center",latex_options=c("hold_position")) 
+```
+
+\newpage
+## Appendix A: Method to Compute the Latent True Disease Burden from  Multiple Clinical Markers {.unnumbered}
+This analysis acknowledges the current status regarding multiple observable but individually imperfect clinical markers representing differing aspects of the disease. As means to elucidate a latent disease burden measure to reflect the severity of disease more robustly than any of the individual markers by combining multiple observables. To make this concrete, three composites are utilized: 
+
+   - a principal components analysis (PCA) of Vh:Cd, IEL count, and GISS, called "Disease Burden" which seeks to represent both histology and symptoms
+   - another PCA-based measure called "Aggregate Histology" that omits the GISS
+   - a relatively simple combination of Vh:Cd and IEL count called "VCIEL"
+
+While these are beign developed, our aim is to arrive at a potentially more informative marker that avoids over-reliance on any of the imperfect single variables and thereby provide a better comparison to MARCS scores.
+
+More detail will be added as this method is further developed based on clinical and biological insights into hitology and symptomatology, and serology.
+
+\newpage
+## Appendix B: Provenance {.unnumbered}
+```{r provenance, fig.align='center', echo=FALSE}
+cat(paste("Analysis executed by", system2("whoami", stdout=TRUE, stderr=TRUE)))
+cat(str_wrap(paste("Results derived from", form_merged_data_sets_output$provenance), width=50, whitespace_only=FALSE))
+setwd(repo_clone)
+cat(str_wrap(paste("Code used for analysis was", git2r::status(repo=".", staged=TRUE, unstaged=TRUE, untracked=TRUE, ignored=FALSE, all_untracked=FALSE)), width=50, whitespace_only=FALSE))
+```

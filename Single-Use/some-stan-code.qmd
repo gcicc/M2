@@ -1,0 +1,42 @@
+---
+title: "Untitled"
+format: html
+editor: visual
+---
+
+```{r}
+library(rstan)
+```
+
+```{r}
+model_code <- "
+data {
+  int<lower=0> N;
+  real y[N];
+}
+parameters {
+  real<lower=0> lambda;  // Rate parameter for exponential distribution
+}
+model {
+  lambda ~ gamma(0.01, 0.01);  // Prior for the rate parameter
+  y ~ exponential(lambda);     // Likelihood
+}
+"
+```
+
+```{r}
+model <- stan_model(model_code = model_code)
+```
+
+```{r}
+data <- list(N = 2000, y = rexp(2000, 2))
+fit <- sampling(model, data = data, chains = 4, iter = 1000)
+posterior.mean <- mean(extract(fit)$lambda)
+posterior.median <- log(2)/mean(extract(fit)$lambda)
+```
+
+```{r}
+fit
+summary(fit)
+```
+

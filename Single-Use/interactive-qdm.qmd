@@ -1,0 +1,392 @@
+---
+title: "Untitled"
+format: html
+execute:
+   echo: FALSE
+server: shiny
+---
+
+```{r}
+require(tidyverse)
+require(DescTools)
+require(DFBA)
+require(gt)
+```
+
+## BayesWilcox Test
+
+```{r}
+require(bayesWilcoxTest)
+# Two-sample (independent) test.
+# Hollander & Wolfe (1973), 69f.
+# Permeability constants of the human chorioamnion (a placental
+# membrane) at term (x) and between 12 to 26 weeks gestational
+# age (y).  The alternative of interest is greater permeability
+# of the human chorioamnion for the term pregnancy.
+x <- c(0.80, 0.83, 1.89, 1.04, 1.45, 1.38, 1.91, 1.64, 0.73, 1.46)
+y <- c(1.15, 0.88, 0.90, 0.74, 1.21)
+indBayesWilcox <- bayes.wilcox.test(x, y, alternative = "greater")
+                              # Note that the argument "alternative" is
+                              # ignored by bayes.wilcox.test
+# Test summary
+print(indBayesWilcox)
+summary(indBayesWilcox)
+
+indBayesWilcox$stats
+
+# Visual Inspection
+plot(indBayesWilcox)
+# Diagnostics for MCMC
+diagnostics.bayes_two_sample_wilcox_test(indBayesWilcox)
+# Print out the model code, which can be modified
+model.code.bayes_two_sample_wilcox_test(indBayesWilcox)
+# Classical Wilcox Test for comparison
+require(broom)
+tidy(wilcox.test(x, y, alternative = "greater"))
+```
+
+```{r}
+require(DescTools)
+HodgesLehmann(x, y, conf.level=.95)
+HodgesLehmann(x, y)
+wilcox.test(x, y, conf.int = TRUE)
+```
+
+## Bayes Mann-Whitney
+
+At interim we will have 18 on treatment and 9 on control.
+
+Define $\Omega_E = \frac{U_E}{U_E + U_C}$ where $U_E$ is the total number of comparisons for which observations from Treatment sample exceeds observation from control sample. $U_C$ is conversely defined for control group.
+
+DFBA::dfba_mann_whitney assumes a uniform prior for $\Omega_E$ and provides posterior beta distribution parameters as
+
+```{r}
+set.seed(77)
+trt <- .5 + rnorm(n = 18, 0, 1) 
+pbo <- 0 + rnorm(n = 9, 0, 1)
+A <- dfba_mann_whitney(E = trt, C = pbo, method="large")
+HL <- HodgesLehmann(trt, pbo)
+report <-  data.frame(
+      a0 = A$a0,
+      b0 = A$b0,
+      a_post = A$a_post,
+      b_post = A$b_post,
+      post_mean = A$post_mean,
+      post_median = A$post_median,
+      BF10 = A$BF10,
+      omegabar = A$omegabar,
+      hdi_lower = A$hdi_lower,
+      hdi_upper = A$hdi_upper,
+      HodgesLehmann = HodgesLehmann(trt, pbo))
+
+report %>% gt()
+```
+
+Prior-posterior plot
+
+```{r}
+MW.ppp <- function(a0=report$a0, b0=report$b0, 
+                   a_post=report$a_post, b_post=report$b_post, 
+                   BF = report$BF10, HL = report$HodgesLehmann){
+  
+  for.plot <-   bind_rows(
+  gcurve(expr = dbeta(x, shape1 = a0, shape2 = b0), category="Prior", from = 0, to = 1),
+  gcurve(expr = dbeta(x, shape1 = a_post, shape2 = b_post), category = "Posterior", from=0, to = 1))
+
+  for.plot$dist <- paste0("Prior: B(1, 1), Posterior: B(", round(a_post,2),", ", round(b_post,2), ")")
+  
+    for.plot %>% ggplot(aes(x=x, y=y, color=category)) + geom_line() + 
+    labs(title="Prior and Posterior Distribution of Omega_E", color="Distribution", subtitle=paste("Bayes Factor:", round(BF,2)),
+         caption=paste0("Hodges-Lehmann Estimate: ", round(HL,2)), x="Omega_E", y=NULL)+
+    geom_vline(xintercept = c(0.5,.75), linetype=2) + facet_wrap(~dist)
+}
+
+MW.ppp()
+```
+
+```{r}
+
+MW.ria.plot <- function(a0=A$a0, b0=A$b0, 
+                        a_post=A$a_post, b_post=A$b_post, BF = A$BF10, 
+                        Delta.lrv = 0.5, Delta.tv = .75, 
+                        tau.lrv = .5, tau.tv = .15, tau.ng = .1){
+
+  # Compute propabilities of interest
+  P.R1 <- 1- pbeta(q = Delta.lrv, shape1 = a_post, shape2 = b_post)
+  P.R3 <- 1- pbeta(q = Delta.tv, shape1 = a_post, shape2 = b_post)
+  
+  result = ifelse(P.R1 >= tau.lrv & P.R3 >= tau.tv, "Go", 
+                  ifelse(P.R1 < tau.ng & P.R3 < tau.tv, "No-Go", "Consider"))
+  
+  gcurve(expr = dbeta(x, shape1 = a_post, shape2 = b_post), category = "Posterior", from=0, to = 1) %>%
+    ggplot(aes(x=x, y=y, color=category)) + geom_line() + 
+    labs(title="Prior and Posterior Distribution of Omega_E", subtitle=paste("Bayes Factor:", round(BF,2), paste0("; Hodges-Lehmann Estimate: ", round(HL,4))), 
+         x="Omega_E", y=NULL, caption = paste("P(Omega_E >", Delta.lrv, ") = ", round(P.R1,4), "\nP(Omega_E >", Delta.tv, ") = ", round(P.R3, 4), "\nResult: ", result))
+  
+}
+
+MW.ria.plot()
+```
+
+```{r}
+MW.oc <- function(a0=1, b0=1, 
+                  shift=seq(0, 1, .05), ntrials=5000,
+                  Delta.lrv = 0.5, Delta.tv = .75, 
+                  tau.lrv = .5, tau.tv = .15, tau.ng = .1){
+  
+  # Simulate 5000 trials per shift
+  tictoc::tic()
+  my.grid <- expand.grid(shift=shift, trial=1:ntrials)
+  
+  results <- bind_rows(apply(X = matrix(1:nrow(my.grid)), MARGIN = 1, function(x){
+  # Sample data
+    w1 <- my.grid$shift[x] + rnorm(n = 18, 0, 1) 
+    w2 <- 0 + rnorm(n = 9, 0, 1)
+    # Method = large since n > 19.  Also much faster than method= "small"
+    A <- DFBA::dfba_mann_whitney(E = w1, C = w2, method="large")
+    data.frame(
+      a0 = A$a0,
+      b0 = A$b0,
+  # Of primary interest below
+      a_post = A$a_post,
+      b_post = A$b_post,
+      post_mean = A$post_mean,
+      post_median = A$post_median,
+      BF10 = A$BF10,
+      omegabar = A$omegabar,
+      eit_lower = A$eti_lower,
+      eti_upper = A$eti_upper) %>% 
+      mutate(seed = my.grid$trial[x], location=my.grid$shift[x])
+    })) %>%
+    mutate(P1 = 1- pbeta(q = Delta.lrv, shape1 = a_post, shape2 = b_post),
+           P3 = 1 - pbeta(q=Delta.tv, shape1 = a_post, shape2 = b_post)) 
+  }
+```
+
+```{r eval=FALSE}
+tictoc::tic()
+MW.oc.results <- MW.oc()
+tictoc::toc()
+```
+
+```{r}
+eval.rule <- function(tau.lrv = 0.5, tau.tv = .1, tau.ng = .65){
+  MW.oc.results %>% 
+  mutate(
+    tau.lrv = tau.lrv, tau.tv = tau.tv, tau.ng = tau.ng,
+    Decision = ifelse(P1 >=tau.lrv & P3 >= tau.tv, "Go", 
+                      ifelse(P1 < tau.ng & P3 < tau.tv, "No-Go", "Consider"))) %>%
+    group_by(tau.lrv, tau.tv, tau.ng, location, Decision) %>% count() %>% group_by(location) %>% mutate(prop=n/sum(n)) %>%
+      ggplot(aes(x=location, y= prop, color=Decision)) +geom_line() +
+    labs(x="Location Shift", title="Operating characteristics", 
+         subtitle=paste("tau.lrv = ", tau.lrv, ", tau.tv = ", tau.tv, ", tau.ng = ", tau.ng))+
+    scale_y_continuous(breaks=seq(0,1,.1), limits = c(0,1))
+}
+```
+
+```{r}
+pdf(file = "rules.pdf", w=11, h=8.5)
+eval.rule(tau.lrv = 0.5, tau.tv = .05, tau.ng = .65)
+eval.rule(tau.lrv = 0.5, tau.tv = .1, tau.ng = .65)
+eval.rule(tau.lrv = 0.5, tau.tv = .15, tau.ng = .65)
+eval.rule(tau.lrv = 0.5, tau.tv = .2, tau.ng = .65)
+eval.rule(tau.lrv = 0.5, tau.tv = .25, tau.ng = .65)
+eval.rule(tau.lrv = 0.5, tau.tv = .3, tau.ng = .65)
+eval.rule(tau.lrv = 0.5, tau.tv = .35, tau.ng = .65)
+eval.rule(tau.lrv = 0.5, tau.tv = .4, tau.ng = .65)
+eval.rule(tau.lrv = 0.5, tau.tv = .45, tau.ng = .65)
+eval.rule(tau.lrv = 0.5, tau.tv = .05, tau.ng = .6)
+eval.rule(tau.lrv = 0.5, tau.tv = .1, tau.ng = .6)
+eval.rule(tau.lrv = 0.5, tau.tv = .15, tau.ng = .6)
+eval.rule(tau.lrv = 0.5, tau.tv = .2, tau.ng = .6)
+eval.rule(tau.lrv = 0.5, tau.tv = .25, tau.ng = .6)
+eval.rule(tau.lrv = 0.5, tau.tv = .3, tau.ng = .6)
+eval.rule(tau.lrv = 0.5, tau.tv = .35, tau.ng = .6)
+eval.rule(tau.lrv = 0.5, tau.tv = .4, tau.ng = .6)
+eval.rule(tau.lrv = 0.5, tau.tv = .45, tau.ng = .6)
+eval.rule(tau.lrv = 0.5, tau.tv = .05, tau.ng = .55)
+eval.rule(tau.lrv = 0.5, tau.tv = .1, tau.ng = .55)
+eval.rule(tau.lrv = 0.5, tau.tv = .15, tau.ng = .55)
+eval.rule(tau.lrv = 0.5, tau.tv = .2, tau.ng = .55)
+eval.rule(tau.lrv = 0.5, tau.tv = .25, tau.ng = .55)
+eval.rule(tau.lrv = 0.5, tau.tv = .3, tau.ng = .55)
+eval.rule(tau.lrv = 0.5, tau.tv = .35, tau.ng = .55)
+eval.rule(tau.lrv = 0.5, tau.tv = .4, tau.ng = .55)
+eval.rule(tau.lrv = 0.5, tau.tv = .45, tau.ng = .55)
+eval.rule(tau.lrv = 0.5, tau.tv = .05, tau.ng = .5)
+eval.rule(tau.lrv = 0.5, tau.tv = .1, tau.ng = .5)
+eval.rule(tau.lrv = 0.5, tau.tv = .15, tau.ng = .5)
+eval.rule(tau.lrv = 0.5, tau.tv = .2, tau.ng = .5)
+eval.rule(tau.lrv = 0.5, tau.tv = .25, tau.ng = .5)
+eval.rule(tau.lrv = 0.5, tau.tv = .3, tau.ng = .5)
+eval.rule(tau.lrv = 0.5, tau.tv = .35, tau.ng = .5)
+eval.rule(tau.lrv = 0.5, tau.tv = .4, tau.ng = .5)
+eval.rule(tau.lrv = 0.5, tau.tv = .45, tau.ng = .5)
+dev.off()
+```
+
+```{r}
+numericInput(inputId = "tau_lrv", "tau.lrv", min=0, max=1, value=.5)
+numericInput(inputId = "tau_tv", "tau.tv", min=0, max=1, value=.1)
+numericInput(inputId = "tau_ng", "tau.ng", min=0, max=1, value=.65)
+plotOutput("evalruleplot")
+```
+
+```{r}
+#| context: server
+output$evalruleplot <- renderPlot({
+  eval.rule(tau.lrv = input$tau.lrv, tau.tv = input$tau.tv, tau.ng = input$tau.ng)
+})
+```
+
+```{r}
+## Operating characteristics.  This is the underlying truth
+# We are interested in W1 shift running from 0, .5 in steps of .025
+# Call this 1000
+
+my.grid <- expand.grid(rep=1:1000, location= seq(0, 1, .05))
+
+tictoc::tic()
+results <- bind_rows(apply(X = matrix(1:nrow(my.grid)), MARGIN = 1, function(x){
+  w1 <- my.grid$location[x] + rnorm(n = 18, 0, 1) 
+  w2 <- 0 + rnorm(n = 9, 0, 1)
+  A <- dfba_mann_whitney(E = w1, C = w2, method="large")
+  data.frame(
+    Emean = A$Emean,
+    Cmean = A$Cmean,
+    n_E = A$n_E,
+    n_C = A$n_C,
+    U_E = A$U_E,
+    U_C = A$U_C,
+    prob_interval = A$prob_interval,
+    a0 = A$a0,
+    b0 = A$b0,
+    a_post = A$a_post,
+    b_post = A$b_post,
+    post_mean = A$post_mean,
+    post_median = A$post_median,
+    method = A$method,
+    priorprH1 = A$priorprH1,
+    prH1 = A$prH1,
+    BF10 = A$BF10,
+    omegabar = A$omegabar,
+    eit_lower = A$eti_lower,
+    eti_upper = A$eti_upper) %>% mutate(seed = my.grid$rep[x], location=my.grid$location[x])
+}))
+
+
+results <- results %>% mutate(P1 = 1- pbeta(q = 0.5, shape1 = a_post, shape2 = b_post),
+                   P3 = 1 - pbeta(q=0.75, shape1 = a_post, shape2 = b_post)) %>% 
+            mutate(Decision = ifelse(P.R1 >= tau.lrv & P.R3 >= tau.tv, "Go", 
+                  ifelse(P.R1 < tau.ng & P.R3 < tau.tv, "No-Go", "Consider")))
+
+head(results)
+
+
+tictoc::toc()
+
+results %>% group_by(location) %>% summarize(CI = mean(eit_lower < 0.5 & eti_upper > 0.5))
+
+results %>% group_by(location) %>% ggplot(aes(x=post_median, fill=factor(location))) + geom_density(alpha=.73)
+
+results %>% group_by(location) %>% ggplot(aes(x=post_mean, fill=factor(location))) + geom_density(alpha=.73)
+results %>% group_by(location) %>% ggplot(aes(x=log(BF10), fill=factor(location))) + geom_density(alpha=.73)
+
+
+results %>% group_by(location) %>% summarize(post_mean.5 = mean(post_mean > 0.5),
+                                             post_mean.6 = mean(post_mean > 0.6),
+                                             post_mean.7 = mean(post_mean > 0.7),
+                                             post_mean.8 = mean(post_mean > 0.8),
+                                             post_mean.9 = mean(post_mean > 0.9)) %>% 
+  pivot_longer(cols=post_mean.5:post_mean.9) %>%
+  ggplot(aes(x =location, y=value, color=name)) + geom_line()
+
+```
+
+```{r}
+
+gcurve <- function (expr, from = NULL, to = NULL, n = 101, add = FALSE,
+                    type = "l", xname = "x", xlab = xname, ylab = NULL,
+                    log = NULL, xlim = NULL, category = NULL, ...)
+{
+  sexpr <- substitute(expr)
+  if (is.name(sexpr)) {
+    expr <- call(as.character(sexpr), as.name(xname))
+  }
+  else {
+    if (!((is.call(sexpr) || is.expression(sexpr)) && xname %in%
+          all.vars(sexpr)))
+      stop(gettextf("'expr' must be a function, or a call or an expression containing '%s'",
+                    xname), domain = NA)
+    expr <- sexpr
+  }
+  if (dev.cur() == 1L && !identical(add, FALSE)) {
+    warning("'add' will be ignored as there is no existing plot")
+    add <- FALSE
+  }
+  addF <- identical(add, FALSE)
+  if (is.null(ylab))
+    ylab <- deparse(expr)
+  if (is.null(from) || is.null(to)) {
+    xl <- if (!is.null(xlim))
+      xlim
+    else if (!addF) {
+      pu <- par("usr")[1L:2L]
+      if (par("xaxs") == "r")
+        pu <- extendrange(pu, f = -1 / 27)
+      if (par("xlog"))
+        10  ^  pu
+      else pu
+    }
+    else c(0, 1)
+    if (is.null(from))
+      from <- xl[1L]
+    if (is.null(to))
+      to <- xl[2L]
+  }
+  lg <- if (length(log))
+    log
+  else if (!addF && par("xlog"))
+    "x"
+  else ""
+  if (length(lg) == 0)
+    lg <- ""
+  if (grepl("x", lg, fixed = TRUE)) {
+    if (from <= 0 || to <= 0)
+      stop("'from' and 'to' must be > 0 with log=\"x\"")
+    x <- exp(seq.int(log(from), log(to), length.out = n))
+  }
+  else x <- seq.int(from, to, length.out = n)
+  ll <- list(x = x)
+  names(ll) <- xname
+  y <- eval(expr, envir = ll, enclos = parent.frame())
+  for.return <- data.frame(x = x, y = y)
+  if (is.null(category) == FALSE)
+    for.return$category <- factor(category)
+  return(for.return)
+}
+
+
+#' @title goparallel
+#' @description initiates parallel computing and sends tidyverse to each core
+#' @param ncores number of cores
+goparallel <- function(ncores=7)
+{
+  cat(paste("\nCurrent Connections: ", dim(showConnections())[1], "\n"))
+  cat("\nClosing any open connections...\n")
+  closeAllConnections()
+  if(exists("cl")) remove(cl)
+  cat(paste("\nCurrent Connections: ", dim(showConnections())[1], "\n"))
+  cat(paste("\nStarting new cluster with", ncores, "cores...\n"))
+  cl <<- parallel::makeCluster(spec = ncores, type="PSOCK")
+  cat(" Cluster initiation complete\n")
+  cat(paste("\nCurrent Connections: ", dim(showConnections())[1], "\n"))
+  cat(paste("\n", exists("cl"), "\n"))
+
+  parallel::clusterEvalQ(cl=cl, expr = {require(tidyverse)})
+  cat("\n\n***\nThe tidyverse pacakge has been sent to each core.\nDo you need other parallel::clusterEvalQ or parallel::clusterExport calls before running your code?\n****\n")
+}
+
+
+
+```

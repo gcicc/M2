@@ -1,0 +1,124 @@
+---
+title: "Untitled"
+format: html
+editor: visual
+---
+
+## Effect Size
+
+$$d=\frac{\bar{x}_{1} -\bar{x}_{2}}{s} $$
+
+$$ s = \sqrt{\frac{(n_1-1)s_1^2 + (n_2-1)s_2^2}{n_1+n_2-2}}$$
+
+1.  Sample $\bar{x}_{1}$ and $\bar{x}_{2}$ from prior
+2.  Sample s from prior
+3.  Compute d
+4.  Repeat many times to determine proportion of times
+    -   d \>= .7
+    -   d in .5-.69
+    -   d in .35-.49
+    -   d \< .35
+
+```{r}
+require(mvtnorm)
+require(tidyverse)
+```
+
+```{r}
+my.mean <- c(.5, .15)
+my.diag <- rbind(c(.15^2, 0), c(0, .025^2))
+my.corr <- rbind(c(1, .25),c(.25, 1))
+my.sigma <- sqrt(my.diag) %*% my.corr %*% sqrt(my.diag)
+
+
+my.sample <- data.frame(rmvnorm(10000, my.mean, my.sigma))
+names(my.sample) <- c("Biomarker", "Symptom")
+
+my.sample <- my.sample %>% mutate(Biomarker.result = case_when(Biomarker < .35 ~ 0,
+                                                  Biomarker >=.35 & Biomarker < .50 ~ 1,
+                                                  Biomarker >=.50 & Biomarker < .70 ~ 2,
+                                                  TRUE >= .70 ~ 3),
+                     Symptom.result = case_when(Symptom < 0.1 ~ 0,
+                                                Symptom >= 0.1 & Symptom < 0.2 ~ 1,
+                                                TRUE ~ 2)) %>% 
+  mutate(result = case_when(
+    Biomarker.result == 3 & Symptom.result != 0 ~ "Green",
+    Biomarker.result == 2 & Symptom.result == 2 ~ "Green",
+    Biomarker.result == 2 & Symptom.result == 1 ~ "Yellow",
+    Biomarker.result == 1 & Symptom.result != 0 ~ "Yellow", 
+    .default = "Orange"
+  )) 
+
+my.sample %>% ggplot(aes(x=Biomarker, y= Symptom, color=result)) + geom_point() + 
+  geom_vline(xintercept = c(.35, .5, .7))+
+  geom_hline(yintercept = c(.1, .2))+
+  scale_color_manual(values = c("green", "orange", "yellow")) 
+
+
+anno <- my.sample %>% mutate(Biomarker.result = case_when(Biomarker < .35 ~ 0,
+                                                  Biomarker >=.35 & Biomarker < .50 ~ 1,
+                                                  Biomarker >=.50 & Biomarker < .70 ~ 2,
+                                                  TRUE >= .70 ~ 3),
+                     Symptom.result = case_when(Symptom < 0.1 ~ 0,
+                                                Symptom >= 0.1 & Symptom < 0.2 ~ 1,
+                                                TRUE ~ 2)) %>% 
+  mutate(result = case_when(
+    Biomarker.result == 3 & Symptom.result != 0 ~ "Green",
+    Biomarker.result == 2 & Symptom.result == 2 ~ "Green",
+    Biomarker.result == 2 & Symptom.result == 1 ~ "Yellow",
+    Biomarker.result == 1 & Symptom.result != 0 ~ "Yellow", 
+    .default = "Orange"
+  )) %>% count(result) %>% mutate(prop = n/sum(n)) %>% select(-n) 
+  
+anno$result <- factor(anno$result, "Green", "Yellow", "Orange")
+
+my.sample %>% ggplot(aes(x=Biomarker, y= Symptom, color=result)) + geom_point() + 
+  geom_vline(xintercept = c(.35, .5, .7))+
+  geom_hline(yintercept = c(.1, .2))+
+  scale_color_manual(values = c("green", "orange", "yellow")) + 
+  labs(caption = paste("Green: ", anno$prop[1], "\nYellow: ", anno$prop[2], "\nOrange: ", anno$prop[3]),
+       title="Simulated Outcomes of Biomarker and Symptom with operating characteristics",
+       subtitle = )
+
+
+```
+
+```{r}
+my.mean <- c(.5, .15)
+
+my.grid <- expand.grid(Biomarker=seq(0,1,.05), Symptom=seq(0,.3,.025))
+my.diag <- rbind(c(.15^2, 0), c(0, .025^2))
+my.corr <- rbind(c(1, .25),c(.25, 1))
+my.sigma <- sqrt(my.diag) %*% my.corr %*% sqrt(my.diag)
+
+holdit <- bind_rows(
+apply(X = matrix(1:nrow(my.grid)), MARGIN = 1, FUN = function(x) {
+  my.sample <- data.frame(rmvnorm(10000, c(my.grid$Biomarker[x], my.grid$Symptom[x]), my.sigma))
+names(my.sample) <- c("Biomarker", "Symptom")
+my.sample <-  my.sample %>% mutate(Biomarker.result = case_when(Biomarker < .35 ~ 0,
+                                                  Biomarker >=.35 & Biomarker < .50 ~ 1,
+                                                  Biomarker >=.50 & Biomarker < .70 ~ 2,
+                                                  TRUE >= .70 ~ 3),
+                     Symptom.result = case_when(Symptom < 0.1 ~ 0,
+                                                Symptom >= 0.1 & Symptom < 0.2 ~ 1,
+                                                TRUE ~ 2)) %>% 
+  mutate(result = case_when(
+    Biomarker.result == 3 & Symptom.result != 0 ~ "Green",
+    Biomarker.result == 2 & Symptom.result == 2 ~ "Green",
+    Biomarker.result == 2 & Symptom.result == 1 ~ "Yellow",
+    Biomarker.result == 1 & Symptom.result != 0 ~ "Yellow", 
+    .default = "Orange"
+  )) %>% count(result) %>% mutate(prop = n/sum(n)) %>% select(-n) 
+
+my.sample$result <- factor(my.sample$result, c("Green", "Yellow", "Orange") )
+my.sample <- my.sample %>% mutate(Biomarker = my.grid$Biomarker[x], Symptom=my.grid$Symptom[x])
+}))
+
+holdit %>% filter(result=="Green") %>% ggplot(aes(x= Biomarker, y=Symptom, fill=prop)) + geom_tile()
+holdit %>% filter(result=="Yellow") %>% ggplot(aes(x= Biomarker, y=Symptom, fill=prop)) + geom_tile()
+holdit %>% filter(result=="Orange") %>% ggplot(aes(x= Biomarker, y=Symptom, fill=prop)) + geom_tile()
+
+holdit %>% filter(Biomarker == .5) %>% ggplot(aes(x=Symptom, y= prop, color=result)) + geom_line()
+
+
+```

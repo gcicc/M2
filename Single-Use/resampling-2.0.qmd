@@ -1,0 +1,463 @@
+---
+title: "resampling 2.0"
+format: html
+editor: visual
+---
+
+## Load packages
+
+```{r message=FALSE}
+require(tidyverse)
+require(gridExtra)
+```
+
+```{r}
+# For normally distributed data the sampling distribution of median's SE is 1.253*SE of mean.
+#' Title
+#'
+#' @param n0 prior sample size
+#' @param n sample size per arm
+#' @param mean.bio best guess at population mean
+#' @param sd.bio best guess at population sd
+#' @param median.bio best guess at population median
+#' @param min.bio min based on data
+#' @param max.bio max based on data
+#' @param group group label
+#' @param Endpoint endpoint label
+#'
+#' @return
+#' @export
+#'
+#' @examples
+resample <- function(n0 = 29, n=18,
+                    mmean=(13*3.08 + 16*1.98)/29, msd=sqrt((13*5.263^2+16*3.184^2)/(13+16-2)), mmedian = (1.33 + .9)/2, 
+                    mmin = 0, mmax=19.3, group="PBO", Endpoint = "Biomarker"){
+  # Sample from sampling distribution of mean
+  my.mean <- mmean/sqrt(n0)
+  # Sample from sampling distribution of median
+  my.median <- mmedian/sqrt(n0)*1.253
+  my.sd <- sqrt((n0-1)*msd^2/rchisq(n = 1, df = n0-1))
+  repeat{
+    temp <- rnorm(n = n, mean = my.mean, sd = my.sd)
+    condition1 <- (abs(median(temp) - mmedian) < my.sd/sqrt(n)*2*1.253)
+    condition2 <- min(temp) > 0
+    condition3 <- max(temp) < mmax*2
+    if(condition1 == TRUE  & condition2 == TRUE & condition3 == TRUE) break             
+  }
+  for.return <- data.frame(Endpoint = temp, group=group)
+  names(for.return)[1] <- Endpoint
+  for.return
+}
+```
+
+```{r}
+#' Title
+#'
+#' @param rsample.biv 
+#' @param target.cor 
+#' @param tol 
+#'
+#' @return
+#' @export
+#'
+#' @examples
+resample.corr1 <- function(rsample=resample(), target.cor = .63, tol=.1){
+  count <- 0
+ repeat{
+     rsample[,1] <- sample(rsample[,1])
+     # rsample.biv$Symptom <- sample(rsample.biv$Symptom)
+     if(cor(rsample[,1], rsample[,2]) < target.cor + tol &  cor(rsample[,1], rsample[,2])  > target.cor - tol) break
+     count <- count + 1
+     if (count > 100) tol <- .2
+ }
+  return(rsample)
+}
+```
+
+```{r}
+resample()
+```
+
+```{r}
+# Placebo Biomarker - Baseline
+rsample.pbo.base.bio <- resample(Endpoint = "Bio:base")
+# Placebo Biomarker - W20
+rsample.pbo.W20.bio <- resample(n0=16, mmean = 19.56, msd = 25.043, mmedian = 11.4, mmax = 100.8, group = "PBO", Endpoint = "Bio:W20")
+# Bring it together
+my.samp.bio.pbo <- rsample.pbo.base.bio %>% cbind(rsample.pbo.W20.bio) %>% select(1,3) %>% mutate(`Bio:base` = sample(`Bio:base`, size=n()))
+# Resample for correlation structure
+my.samp.bio.pbo <- resample.corr1(my.samp.bio.pbo)
+cor(my.samp.bio.pbo)
+```
+
+```{r}
+# Placebo Symptom Baseline
+rsample.pbo.base.sym <- resample(n0 = 29, n = 18, mmean = (.21*13 + .18*16)/29, msd = .216, mmedian = (.12+.09)/2, mmin = 0, mmax = 1.1, group="PBO", Endpoint="Symp:base")
+# Placebo Symptom W20
+rsample.pbo.W20.sym <- resample(n0 = 16, n = 18, mmean = 3.82, msd = 3.861, mmedian = 2.58, mmin = 0, mmax = 11.6, group = "PBO", Endpoint = "Symp:W20")
+
+my.samp.symp.pbo <- rsample.pbo.base.sym %>% cbind(rsample.pbo.W20.sym) %>% select(1,3) %>% mutate(`Symp:base` = sample(`Symp:base`, size=n()))
+my.samp.symp.pbo <- resample.corr1(my.samp.symp.pbo)
+cor(my.samp.symp.pbo)
+
+```
+
+```{r}
+corr.sample2 <- function(endpoint1 = my.samp.bio.pbo, endpoint2 = my.samp.symp.pbo, target.cor = .6, tol=.1){
+
+  # Compute differences
+  endpoint1$diff1 <- endpoint1[,2] - endpoint1[,1]
+  endpoint2$diff2 <- endpoint2[,2] - endpoint2[,1]
+  # Build temp data.frame
+  temp <- cbind(endpoint1, endpoint2) %>% select(diff1, diff2, everything()) %>% mutate(ID = 1:n())
+  count <- 0
+repeat{
+temp <- temp %>% mutate(ID2 = sample(ID))
+if(cor(temp[temp$ID2,1], temp[,2]) < target.cor + tol &  cor(temp[temp$ID2,1], temp[,2])  > target.cor - tol) break
+count <- count + 1
+if(count > 100) tol <- .2
+}
+
+temp[,1] <- temp[temp$ID2,1]
+temp[,3] <- temp[temp$ID2,3]
+temp[,4] <- temp[temp$ID2,4]
+temp
+}
+```
+
+```{r}
+temp <- corr.sample2()
+all.equal(summary(my.samp.bio.pbo), summary(temp[,3:4]))
+all.equal(summary(my.samp.symp.pbo), summary(temp[,5:6]))
+cor(temp$`Bio:base`, temp$`Bio:W20`)
+cor(temp$`Symp:base`, temp$`Symp:W20`)
+cor(temp$diff1, temp$diff2)
+```
+
+```{r}
+gen.data <- function(
+    n0.b.b=29, mmean.b.b = (13*3.08 + 16*1.98)/29, msd.b.b = sqrt((13*5.263^2+16*3.184^2)/(13+16-2)), mmedian.b.b = (1.33 + .9)/2, mmax.b.b = 19.3,
+    n0.b.20=16, mmean.b.20 = 19.56, msd.b.20 = 25.043, mmedian.b.20 = 11.4, mmax.b.20 = 100.8, group = "PBO",
+    n0.s.b=29, mmean.s.b = (.21*13 + .18*16)/29, msd.s.b = .216, mmedian.s.b = (.12+.09)/2, mmax.s.b = 1.1,
+    n0.s.20=16, mmean.s.20 = 3.82, msd.s.20 = 3.861, mmedian.s.20 = 2.58, mmax.s.20 = 11.6    ){
+
+  rsample.base.bio <- resample(n0 = n0.b.b, n=18,
+                                   mmean=mmean.b.b, msd=msd.b.b, mmedian = mmedian.b.b, 
+                                   mmin = 0, mmax=mmax.b.b, group="PBO", Endpoint = "Bio:base")
+  # Placebo Biomarker - W20
+  rsample.W20.bio <- resample(n0=n0.b.20, 
+                                  mmean = mmean.b.20, msd = msd.b.20, mmedian = mmedian.b.20, 
+                                  mmax = mmax.b.20, group = group, Endpoint = "Bio:W20")
+# Bring it together
+my.samp.bio <- rsample.base.bio %>% cbind(rsample.W20.bio) %>% select(1,3) %>% mutate(`Bio:base` = sample(`Bio:base`, size=n()))
+# Resample for correlation structure
+my.samp.bio <- resample.corr1(my.samp.bio)
+
+### 
+rsample.base.sym <- resample(n0 = 29, n = 18, mmean = mmean.s.b, msd = msd.s.b, mmedian = mmedian.s.b, mmin = 0, mmax = mmax.s.b, group="PBO", Endpoint="Symp:base")
+# Placebo Symptom W20
+rsample.W20.sym <- resample(n0 = 16, n = 18, mmean = mmean.s.20, msd = msd.s.20, mmedian = mmedian.s.20, mmin = 0, mmax = mmax.s.20, group = "PBO", Endpoint = "Symp:W20")
+
+my.samp.symp <- rsample.base.sym %>% cbind(rsample.W20.sym) %>% select(1,3) %>% mutate(`Symp:base` = sample(`Symp:base`, size=n()))
+my.samp.symp <- resample.corr1(my.samp.symp)
+
+corr.sample2(endpoint1 = my.samp.bio, endpoint2 = my.samp.symp, target.cor = .3, tol=.1)
+}
+
+
+```
+
+```{r}
+for.display <- gen.data()
+```
+
+
+```{r}
+p1 <- for.display %>% ggplot(aes(x=`Bio:base`, y=`Bio:W20`)) + geom_point() + geom_smooth(method="lm") + ggtitle("Biomakers Base vs. Week20") + geom_rug() + ylim(0,100) + xlim(0,8)
+p2 <- for.display %>% ggplot(aes(x=`Bio:base`, y=`diff1`)) + geom_point() + geom_smooth(method="lm")+ ggtitle("Biomakers: Base vs. Change") + geom_rug()+ ylim(0,100) + xlim(0,8)
+p3 <- for.display %>% ggplot(aes(x=`Symp:base`, y=`Symp:W20`)) + geom_point() + geom_smooth(method="lm")+ ggtitle("Symptom: Base vs. Week20") + geom_rug() + ylim(0,9) + xlim(0,.35)
+p4 <- for.display %>% ggplot(aes(x=`Symp:base`, y=`diff2`)) + geom_point() + geom_smooth(method="lm")+ ggtitle("Symptom: Base vs. Change") + geom_rug()+ ylim(0,9) + xlim(0,.35)
+grid.arrange(p1, p2, p3,p4, ncol=2)
+p5 <- for.display %>% ggplot(aes(x=`diff1`, y=`diff2`)) + geom_point() + geom_smooth(method="lm")+ ggtitle("Bio Change vs. Symp Change") + geom_rug()
+```
+
+
+
+
+```{r}
+biomarker.grid <- data.frame(
+mean=seq(19.56,5.09,  length.out=10),
+sd = seq( 25.043, 6.175,length.out=10),
+median = seq( 11.40,1.80, length.out=10),
+min = seq(0, 0, length.out=10),
+max = seq( 100.8, 17.7,length.out=10))
+```
+
+```{r}
+symptom.grid <- data.frame(
+mean=seq(3.82, .91, length.out=10),
+sd = seq(3.861, 1.104, length.out=10),
+median = seq(2.58, .49, length.out=10),
+min = seq(0, 0, length.out=10),
+max = seq(11.6, 3.1, length.out=10))
+```
+
+```{r}
+#' @title goparallel
+#' @description initiates parallel computing and sends tidyverse to each core
+#' @param ncores number of cores
+goparallel <- function(ncores=7)
+{
+  cat(paste("\nCurrent Connections: ", dim(showConnections())[1], "\n"))
+  cat("\nClosing any open connections...\n")
+  closeAllConnections()
+  if(exists("cl")) remove(cl)
+  cat(paste("\nCurrent Connections: ", dim(showConnections())[1], "\n"))
+  cat(paste("\nStarting new cluster with", ncores, "cores...\n"))
+  cl <<- parallel::makeCluster(spec = ncores, type="PSOCK")
+  cat(" Cluster initiation complete\n")
+  cat(paste("\nCurrent Connections: ", dim(showConnections())[1], "\n"))
+  cat(paste("\n", exists("cl"), "\n"))
+
+  parallel::clusterEvalQ(cl=cl, expr = {require(tidyverse)})
+  cat("\n\n***\nThe tidyverse pacakge has been sent to each core.\nDo you need other parallel::clusterEvalQ or parallel::clusterExport calls before running your code?\n****\n")
+}
+
+require(parallel)
+goparallel(ncores = 10)
+parallel::clusterExport(cl=cl, varlist=c("resample", "gen.data","biomarker.grid", "symptom.grid", "resample.corr1", "corr.sample2"))
+```
+
+```{r eval=FALSE}
+tictoc::tic()
+holdit <- bind_rows(
+  parApply(cl=cl, X = matrix(1:10), MARGIN = 1, FUN = function(y){
+    bind_rows(
+apply(X = matrix(1:1000), 1, function(x){
+temp.pbo <- gen.data() %>% mutate(group="PBO")
+temp.trt <- gen.data(
+   n0.b.b=29, mmean.b.b = (13*3.08 + 16*1.98)/29, msd.b.b = sqrt((13*5.263^2+16*3.184^2)/(13+16-2)), mmedian.b.b = (1.33 + .9)/2, mmax.b.b = 19.3,
+    n0.b.20=16, mmean.b.20 = biomarker.grid$mean[y], msd.b.20 = biomarker.grid$sd[y], mmedian.b.20 = biomarker.grid$median[y], mmax.b.20 = biomarker.grid$max[y], group = "TRT",
+    n0.s.b=29, mmean.s.b = (.21*13 + .18*16)/29, msd.s.b = .216, mmedian.s.b = (.12+.09)/2, mmax.s.b = 1.1,
+    n0.s.20=16, mmean.s.20 = symptom.grid$mean[y], msd.s.20 = symptom.grid$sd[y], mmedian.s.20 = symptom.grid$median[y], mmax.s.20 = symptom.grid$max[y]) %>% mutate(group="TRT")
+
+
+ rbind(temp.pbo, temp.trt) %>% 
+  group_by(group) %>% 
+  summarize(bio.mean.base=mean(`Bio:base`),
+            bio.sd.base = sd(`Bio:base`),
+            sym.mean.base =mean(`Symp:base`),
+            sym.sd.base = sd(`Symp:base`),
+            cor.base=cor(`Bio:base`, `Symp:base`),
+            bio.mean.W20=mean(`Bio:W20`),
+            bio.sd.W20= sd(`Bio:W20`),
+            sym.mean.W20 =mean(`Symp:W20`),
+            sym.sd.W20 = sd(`Symp:W20`),
+            cor.W20=cor(`Bio:W20`, `Symp:W20`),
+            bio.mean.diff=mean(`diff1`),
+            bio.sd.diff= sd(`diff1`),
+            sym.mean.diff =mean(`diff2`),
+            sym.sd.diff = sd(`diff2`),
+            cor.diff=cor(`diff1`, `diff2`),
+            n=n()
+            ) %>% 
+  mutate(mean.diff.bio=bio.mean.diff[1] - bio.mean.diff[2],
+         pooled.sd.bio = ((bio.sd.diff[1])^2*(n[1]-1) + (bio.sd.diff[2])^2*(n[2]-1))/(n[1] + n[2]-2),
+         mean.diff.sym = sym.mean.diff[1] - sym.mean.diff[2],
+         pooled.sd.sym = ((sym.sd.diff[1])^2*(n[1]-1) + (sym.sd.diff[2])^2*(n[2]-1))/(n[1] + n[2]-2)
+         ) %>% mutate(scenario=y, rep=x)
+
+})) 
+}) )
+
+tictoc::toc()
+
+
+write.csv(holdit, "big-sim-results.csv")
+```
+
+```{r}
+holdit <- read.csv("big-sim-results.csv")
+holdit
+```
+
+```{r}
+# Generate Data
+q1 <- holdit %>% ggplot(aes(x=bio.mean.base, color=factor(scenario))) + geom_density(linewidth=1) + facet_wrap(~group)
+q2 <- holdit %>% ggplot(aes(x=bio.mean.W20, color=factor(scenario))) + geom_density(linewidth=1)+ facet_wrap(~group) + labs(color="Scenario")
+
+
+```
+
+```{r}
+holdit %>% ggplot(aes(x=sym.mean.base, color=factor(scenario))) + geom_density(linewidth=1) + facet_wrap(~group)
+holdit %>% ggplot(aes(x=sym.mean.W20, color=factor(scenario))) + geom_density(linewidth=1)+ facet_wrap(~group)+ labs(color="Scenario")
+```
+
+```{r}
+holdit %>% group_by(scenario, rep) %>% slice(1) %>% group_by(scenario) %>% 
+  ggplot(aes(x=mean.diff.bio, color=factor(scenario))) + geom_density(linewidth=1) + 
+  labs(x="Biomarker Effect Size", y="", 
+       title="Densities of Biomarker effect size by Scenario", 
+       subtitle="Effect size: Difference in means", color="Scenario") +
+  scale_x_continuous(breaks = seq(-30,40, 5))+geom_vline(xintercept=0) + geom_vline(xintercept=c(5,10,15), linewidth=1, linetype=2, color="grey20")
+```
+
+```{r}
+holdit %>% group_by(scenario, rep) %>% slice(1) %>% group_by(scenario) %>% 
+  ggplot(aes(x=mean.diff.sym, color=factor(scenario))) + geom_density(linewidth=1) + 
+  labs(x="Symptom difference", y="", color="Scenario",
+       title="Densities of Symptom effect size by Scenario", 
+       subtitle="Effect size: Difference in means")+geom_vline(xintercept=0)+ geom_vline(xintercept=c(.5, 1), linewidth=1, linetype=2, color="grey20")
+```
+
+```{r}
+p1 <- holdit %>% group_by(scenario, rep) %>% slice(1) %>% group_by(scenario) %>% 
+  ggplot(aes(x=mean.diff.bio, color=factor(scenario))) + geom_density(linewidth=1) + 
+  labs(x="Biomarker Effect Size", y="", 
+       title="Densities of Biomarker effect size by Scenario", 
+       subtitle="Effect size: Difference in means", color="Scenario") +
+  scale_x_continuous(breaks = seq(-30,40, 5))+geom_vline(xintercept=0) + geom_vline(xintercept=c(5,10,15), linewidth=1, linetype=2, color="grey70") + guides(color="none")
+p2 <- holdit %>% group_by(scenario, rep) %>% slice(1) %>% group_by(scenario) %>% 
+  ggplot(aes(x=mean.diff.sym, color=factor(scenario))) + geom_density(linewidth=1) + 
+  labs(x="Symptom difference", y="", color="Scenario",
+       title="Densities of Symptom effect size by Scenario", 
+       subtitle="Effect size: Difference in means")+geom_vline(xintercept=0)+ geom_vline(xintercept=c(.5, 1), linewidth=1, linetype=2, color="grey70")+ guides(color="none")
+grid.arrange(grid.arrange(p1, p2), p1, ncol=2)
+```
+
+
+
+```{r}
+classify_grid <- expand.grid(bio.cut1 = seq(0, 5, 2.5), bio.cut2 = seq(5,15,5), bio.cut3 = seq(10,20, 5), sym.cut1 = seq(0,1.5, .5), sym.cut2 = seq(1,2.5,.5))
+dim(classify_grid)
+classify_grid <- classify_grid %>% filter(bio.cut1 < bio.cut2 & bio.cut2 < bio.cut3 & sym.cut1 < sym.cut2)
+```
+
+```{r}
+classify <- function(bio.cut = c(5, 10, 20), sym.cut = c(.5, 1)){
+holdit %>% group_by(scenario, rep) %>% slice(1) %>% ungroup() %>%
+  mutate(biomark.class = case_when(   mean.diff.bio < bio.cut[1] ~ 1,
+                                      mean.diff.bio > bio.cut[1] & mean.diff.bio < bio.cut[2] ~ 2,
+                                      mean.diff.bio > bio.cut[2] & mean.diff.bio < bio.cut[3] ~ 3,
+                                      mean.diff.bio >  bio.cut[3]  ~ 4)) %>%
+  mutate(sym.class = case_when(mean.diff.sym < sym.cut[1] ~ 1,
+                               mean.diff.sym > sym.cut[1] & mean.diff.sym < sym.cut[2] ~ 2,
+                               mean.diff.sym > sym.cut[2] ~ 3)) %>% 
+    mutate(category = case_when((biomark.class == 1 | sym.class == 1) ~ "De-risk",
+                                (biomark.class == 2 & sym.class %in% c(2,3)) ~ "Cond. Invest Inc",
+                                (biomark.class == 3 & sym.class == 2) ~ "Cond. Invest Inc",
+                                (biomark.class == 3 & sym.class == 3) ~ "Inc Invest",
+                                (biomark.class == 4 & sym.class %in% c(2,3))  ~ "Inc Invest"))
+}
+
+
+classify() %>% group_by(scenario) %>% count(category) %>% mutate(prop=n/sum(n)) %>% ggplot(aes(x=scenario, y = prop, fill=category)) + geom_bar(stat="identity")+
+  scale_x_continuous(breaks=seq(1,10,1)) + labs(title="Decision Rule Outcome classification based on dual endpoint assessment",
+                                                subtitle="bio.cut = c(5, 10, 15), sym.cut = c(.5, 1)", x="Scenario", y="Proportion")+
+   scale_fill_manual(values=c("grey","red", "green"))
+
+```
+
+```{r}
+classify(bio.cut = c(5, 12, 15), sym.cut = c(.5, 1.5)) %>% group_by(scenario) %>% count(category) %>% mutate(prop=n/sum(n)) %>% ggplot(aes(x=scenario, y = prop, fill=category)) + geom_bar(stat="identity")+
+  scale_x_continuous(breaks=seq(1,10,1)) + labs(title="Decision Rule Outcome classification based on dual endpoint assessment",
+                                              x="Scenario", y="Proportion")+
+   scale_fill_manual(values=c("grey","red", "green"))
+```
+
+```{r}
+holdit <- read.csv("big-sim-results.csv")
+pdf(file = "classify_grid.pdf", width = 11, height = 8.5)
+for(i in 1:nrow(classify_grid)) {
+  p1 <- holdit %>% 
+    group_by(scenario, rep) %>% 
+    slice(1) %>% 
+    group_by(scenario) %>%
+    ggplot(aes(x = mean.diff.bio, color = factor(scenario))) + 
+    geom_density(linewidth = 1) +
+    labs(
+      x = "Biomarker Effect Size",
+      y = "",
+      title = "Biomarker effect size",
+      subtitle = "Effect size: Difference in means",
+      color = "Scenario"
+    ) +
+    scale_x_continuous(breaks = seq(-30, 40, 5)) + 
+    geom_vline(xintercept = 0) + 
+    geom_vline(xintercept = c(classify_grid$bio.cut1[i],
+                              classify_grid$bio.cut2[i],
+                              classify_grid$bio.cut3[i]),
+               linewidth = 1,
+               linetype = 2,
+               color = "grey20"
+               ) + 
+    guides(color = "none")
+  p2 <-
+    holdit %>% 
+    group_by(scenario, rep) %>% 
+    slice(1) %>% 
+    group_by(scenario) %>%
+    ggplot(aes(x = mean.diff.sym, color = factor(scenario))) + 
+    geom_density(linewidth =1) +
+    labs(
+      x = "Symptom difference",
+      y = "",
+      color = "Scenario",
+      title = "Symptom effect size",
+      subtitle = "Effect size: Difference in means"
+    ) + 
+    geom_vline(xintercept = 0) + 
+    geom_vline(
+      xintercept = c(classify_grid$sym.cut1[i], classify_grid$sym.cut2[i]),
+      linewidth = 1,
+      linetype = 2,
+      color = "grey20"    ) + 
+    guides(color = "none")
+  
+  
+  p <-
+    classify(
+      bio.cut = c(
+        classify_grid$bio.cut1[i],
+        classify_grid$bio.cut2[i],
+        classify_grid$bio.cut3[i]
+      ),
+      sym.cut = c(classify_grid$sym.cut1[i], classify_grid$sym.cut2[i])
+    ) %>% group_by(scenario) %>% 
+    count(category) %>% 
+    mutate(prop = n / sum(n)) %>%
+    ggplot(aes(x = scenario, y = prop, fill = category)) + 
+    geom_bar(stat = "identity") +
+    scale_x_continuous(breaks = seq(1, 10, 1)) + 
+    labs(
+      title = "Decision Rule Outcome",
+      x = "Scenario",
+      y = "Proportion",
+      fill = "Decision",
+      caption = paste(
+        "Biomarker cuts:",
+        classify_grid$bio.cut1[i],
+        classify_grid$bio.cut2[i],
+        classify_grid$bio.cut3[i],
+        "\n",
+        "Symptom cuts:",
+        classify_grid$sym.cut1[i],
+        classify_grid$sym.cut2[i]
+      )
+    ) +
+    scale_fill_manual(values = c("grey", "red", "green"))
+  lay <- rbind(c(1, 3), c(2, 3))
+  
+  grid.arrange(
+    p1,
+    p2,
+    p + theme(legend.position = "bottom") + guides(fill = guide_legend(nrow = 1)) ,
+    ncol = 2,
+    widths = c(.4, .6),
+    layout_matrix = lay
+  )
+  
+}
+dev.off()
+```

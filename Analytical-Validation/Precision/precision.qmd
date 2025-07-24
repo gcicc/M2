@@ -1,0 +1,222 @@
+---
+title: "**Precision of MARCS `r gsub(x=gsub(x=params$this_endpoint, pattern='All_', replacement='All (tertile) '), pattern='_', replacement=' ')`**"
+author: "MARCS Crossfunctional Team"
+date: last-modified
+date-format: "MMM D, YYYY   hh:mm"
+format: 
+  pdf:
+    header-includes: 
+      \usepackage{geometry}
+      \geometry{top=0.75in,left=0.80in,bottom=0.5in,right=0.80in}
+    include-in-header: 
+      text: |
+        \usepackage{scrlayer-scrpage}
+        \cohead[{\includegraphics[height=4cm]{images/Logo.png}}]{Association of MARCS Score Relative to Comparators}
+    embed-resources: true
+    smooth-scroll: true
+    toc: true
+    toc-location: left
+    toc-title: Contents
+    toc-depth: 3
+    number-sections: true
+    number-offset: 1
+params:
+  analysis_type: "formal type of this analysis"
+  study: "a study"
+  repo_clone: "directory where the clone is"
+  input_dir: "directory for the input"
+  output_dir: "directory for the output"
+  this_endpoint: "which of the MARCS scores to use"
+execute: 
+  echo: false
+  message: false
+  warning: false
+  tbl-cap-location: top
+editor_options: 
+  chunk_output_type: console
+---
+
+\newpage
+
+The Takeda MARCS VCE tool is a semi-automated, computer-assisted small intestine villous damage scoring device that provides an effective way to implement the per-frame CE-VAST scale and the per-region MARCS, including the calculation of the individual biomarker outputs, notably BVA using white-light video VCE examinations of patients. The use of this tool is contingent upon the availability of images obtained by a compatible capsule endoscopy device. The tool includes a marking capability that inputs VCE videos and defines regions, which output may then be used by either a manual scoring tool that facilitates manual scoring, or a machine-learning algorithm (with static code) to automate scoring. 
+
+```{=tex}
+\begin{figure}
+  \caption{Schematic Depiction of the SI and Areas Evaluated by MARCS}
+  \centering
+  \includegraphics{images/BVA.png}
+  \caption*{Burden of Villous Atrophy (BVA) is the mean of the MARCS curve in Tertile 1.}
+\end{figure}
+```
+
+Validation will be conducted in multiple clinical trials. Specifically, beginning with (i) evaluation of the CE-VAST scale on a per-frame basis, (ii) analytical validation of BVA, and (iii) preliminary assessment of clinical/biological validation, including the analysis on the following study data:
+
+```{=tex}
+\begin{figure}
+  \caption{Study Calendar}
+  \centering
+  \includegraphics{images/Study_Design.png}
+  \caption*{Scheduled visits identify when data of various types is collected.}
+\end{figure}
+```
+
+\newpage
+
+```{r analysis, fig.align='center', echo=FALSE, warning=FALSE, error=FALSE}
+study <- params$study
+repo_clone <- params$repo_clone
+input_dir <- params$input_dir
+output_dir <- params$output_dir
+this_endpoint <- params$this_endpoint
+
+source(paste0(repo_clone, "/Shared-Content/preamble.R"))
+functions_path <- path(repo_clone, "Analytical-Validation", "Precision", "functions")
+r_files <- list.files(path=functions_path, pattern="\\.R$", full.names=TRUE)
+for (file in r_files) {
+  source(file)
+}
+table_path <- path(output_dir, "tables")
+dir.create(table_path)
+figure_path <- path(output_dir, "figures")
+dir.create(figure_path)
+
+results.ML <- list()
+
+form_merged_data_sets_output <- form_merged_data_sets(analysis_type=params$analysis_type, study=study, this_endpoint=this_endpoint, output_dir=output_dir)
+
+
+# Initialize storage lists
+
+# merged_data_sets is a list containing one entry for each IQ level.
+for (i in 1:length(form_merged_data_sets_output$merged_data_sets)) {
+  merged_data_set <- form_merged_data_sets_output$merged_data_sets[[i]]
+  label.name <- names(form_merged_data_sets_output$merged_data_sets)[i]
+  
+  reader_type <- "ML"
+  if(study != "Sheffield") {
+    # Assuming this is TAK-062-2001
+    # 264 rows
+  analysis.data.in.temp <- merged_data_set$merged_data.ML$merged_data.ML.full %>% mutate(label.name=label.name)
+  # 123 rows
+  analysis.data.in.temp <- analysis.data.in.temp %>% dplyr::filter(VISIT=="VISIT 2 - Week -4")
+  # We have 14 with retest flag = TRUE
+  table(analysis.data.in.temp$Retest.Flag)
+  # These 14 also have matches
+  analysis.data.in.Retest.Flag <- analysis.data.in.temp %>% filter(Retest.Flag==TRUE)
+  analysis.fata.in.Retest.Flag.TRUE.SUBJID <- analysis.data.in.Retest.Flag$SUBJID
+  analysis.fata.in.Retest.Flag.FALSE.SUBJID <- analysis.data.in.temp %>% dplyr::filter(Retest.Flag==FALSE & (SUBJID %in% analysis.fata.in.Retest.Flag.TRUE.SUBJID))
+  analysis.data.in <- bind_rows(analysis.data.in.Retest.Flag, analysis.fata.in.Retest.Flag.FALSE.SUBJID)
+  
+  } else {
+      analysis.data.in.ML <- merged_data_set$merged_data.ML$merged_data.ML.full %>% mutate(label.name=label.name) %>% filter(!is.na(BVA))
+      analysis.data.in.Human <- merged_data_set$merged_data.Human$merged_data.Human.full %>% mutate(label.name=label.name) %>% filter(!is.na(BVA))
+      analysis.data.in <- bind_rows(analysis.data.in.ML, analysis.data.in.Human)
+    }
+  
+  results <- main_analysis(analysis.data.in=analysis.data.in, reader_type=reader_type, this_endpoint=this_endpoint)
+  results.ML[[length(results.ML)+1]] <- results
+  names(results.ML)[length(results.ML)] <- label.name
+  
+}
+
+
+```
+
+Precision evaluates differences in the measured MARCS measureand under various conditions (repeatability and reproducibility). The variance among subjects is irrelavant to this analysis, other than including subjects of different disease burden so thatt we can evaluate how/if variation changed with disease burden. Following Kessler et al. (2015): 
+
+* Repeatability: Evaluate the measurement precision under the same measurement procedure, same operators, same measuring system, same operating conditions, and same physical location, and replicate measurements on the same or similar experimental units over a short period. 
+
+   * Test-retest: Evaluate the agreement for the same subjects who undergo a second administration of the video capsule during a period when there is no change in diet within 7 days of the first VCE administration. 
+   * Intra-reader: for a given VCE read by a reader, re-read to determine the intra-reader variability. 
+   * Minimum detectable difference (MDD) is computed by accounting for the contributions of test-retest and re-read repeatability.
+
+*	Reproducibility: Evaluate the measurement precision under differing conditions. 
+
+   * Inter-reader: for a given VCE read by multiple readers, determine the inter-reader agreement. 
+
+In addition to variance estimation, the repeatability coefficient (RC) and reproducibility coefficient (RDC) in the original CE-VAST scale are computed. 
+
+Test-retest assess the variability of BVA when the same subject receives multiple VCE traversals under identical or near-identical conditions. Consider $n$ subjects undergoing $t = 2$ VCE traversals and read $m = 2$ times by the ML algorithm.  The data conform to a repeated measures design and are described by the following two-way random effects model:
+
+$$y_{ijk} = \mu + s_i + r_j+ (sr)_{ij} + \epsilon_{ijk}\\
+i=1,...,n; j=1,...,t; k=1,...,m$$
+
+where $\mu$ is the mean rating; $s_i$ ~ N(0, $\sigma_s^2$) is the subject random effect effect; $r_j$ ~ N(0, $\sigma_r^2$) is the traversal random effect; $(sr)_{ij}$ ~ N(0, $\sigma_{sr}^2$) represents the traversal-subject interaction, which reflects the degree to which the $j^{th}$ traversal departs from its corresponding test when confronted by the $i^{th}$ subject; and $\epsilon_{ijk}$ ~ N(0, $\sigma^2$) is the intra-reader random error. All effects are mutually independent of each other.
+
+Each subject participating in the test-retest sub-study will undergo two transits of the video capsule within one week (a period which is considered insignificant to the impact of disease progression) to create a pair of videos that would ideally result in the same BVA assessment for that subject but, in practice, will differ. The machine learning algorithm reads each of these two videos twice, for a total of four reads to represent both the test-retest and the intra-read components of variability. 
+
+## Variance Components Analysis
+
+```{r}
+VCA.report(VCA.fit = results.ML)
+```
+
+Total Analytic Variability is the sum $V = \sigma^2_r + \sigma^2_{sr} + \sigma^2_{\epsilon}$. The reproducibility coefficient is given by $RDC = 2.77 \times \sqrt{\hat{V}}$. The repeatability coefficient is given by $RC = 2.77 \times \sqrt{\hat{\sigma}^2_\epsilon}$. Confidence intervals are computed along the lines of Raunig et al. (2015). Minimum Detectable Difference is computed as $MDD = (z_{1-\alpha/2} + z_{1-\beta})\sqrt{2s^2_p}$ where $\alpha$ is the significance level, $\beta$ 1 - the statistical power, n is the number of subjects and $s^2_p$ is the pooled variance. 
+
+
+### Metrics from Variance Component Analysis
+```{r}
+VCA.report2(VCA.fit = results.ML)
+```
+
+### Histograms of Subject Means and Standard Deviations
+
+```{r}
+VCA.Hists.means <- VCA.histogram.subject.means(VCA.fit = results.ML)
+if(study != "Sheffield") {
+  VCA.Hists.means[[2]]
+} else {
+  VCA.Hists.means[[1]]
+}
+```
+
+### Histograms of Subject Standard Deviations
+```{r}
+VCA.Hists.sds <- VCA.histogram.subject.sds(VCA.fit = results.ML)
+if(study != "Sheffield") {
+  VCA.Hists.sds[[2]]
+} else {
+  VCA.Hists.sds[[1]]
+}
+```
+
+### Variance component analysis plot
+
+```{r}
+VCA.plot(VCA.fit = results.ML, tofile=TRUE, toscreen=1)
+VCA.plot(VCA.fit = results.ML, tofile=FALSE, toscreen=1)
+```
+
+### Scatterplot of Subject Means vs. Standard Deviations
+
+```{r}
+VCA.scatterplot <- VCA.scatterplot.subject.mean.vs.sd(VCA.fit = results.ML)
+if(study != "Sheffield") {
+  VCA.scatterplot[[2]]
+} else {
+  VCA.scatterplot[[1]]
+}
+```
+
+### Bland-Altman Plot
+
+```{r}
+BA.plots <- Bland.Altman(VCA.results = results.ML)
+if(study != "Sheffield") {
+  BA.plots[[2]]
+} else {
+  BA.plots[[1]]
+}
+```
+
+## References
+
+Raunig DL, McShane LM, Pennello G, Gatsonis C, Carson PL, Voyvodic JT, Wahl RL, Kurland BF, Schwarz AJ, Gönen M, Zahlmann G. Quantitative imaging biomarkers: a review of statistical methods for technical performance assessment. Statistical methods in medical research. 2015 Feb;24(1):27-67.
+
+## Appendix: Provenance {.unnumbered}
+```{r provenance, fig.align='center', echo=FALSE}
+cat(paste("Analysis executed by", system2("whoami", stdout=TRUE, stderr=TRUE)))
+cat(str_wrap(paste("Results derived from", form_merged_data_sets_output$provenance), width=50, whitespace_only=FALSE))
+setwd(repo_clone)
+cat(str_wrap(paste("Code used for analysis was", git2r::status(repo=".", staged=TRUE, unstaged=TRUE, untracked=TRUE, ignored=FALSE, all_untracked=FALSE)), width=50, whitespace_only=FALSE))
+```

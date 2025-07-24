@@ -1,0 +1,307 @@
+---
+title: "Symptom window analysis"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+
+Setup
+```{r}
+library(readxl)
+library(tidyverse)
+library(readr)
+
+demog <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/Demographics_data.xlsx"))
+demog %>% dplyr::filter(`Randomized Population Flag` == "Y") %>% dplyr::pull(`Unique Subject Identifier`) %>% unique() -> randomized_subjects
+
+Hist <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/CDSD_Histology_data.xlsx"))
+
+CDSD <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/CDSD_daily_data.xlsx"))
+```
+
+Histology
+```{r}
+# Scale values for each endpoint
+CDSD <- CDSD %>%
+  group_by(`Question Name`) %>%
+  dplyr::select(`Unique Subject Identifier`, `Study Day of Finding`, `Question Name`, `Numeric Finding in Standard Units`) %>%
+  pivot_wider(names_from = `Question Name`, values_from = `Numeric Finding in Standard Units`, values_fn = mean) %>%
+  arrange(`Unique Subject Identifier`, `Study Day of Finding`) 
+
+CDSD <- CDSD %>% dplyr::filter(`Unique Subject Identifier` %in% randomized_subjects)
+Hist <- Hist %>% dplyr::filter(`Unique Subject Identifier` %in% randomized_subjects)
+Hist <- Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Analysis Visit` =="Week 24", `Unique Subject Identifier` %in% randomized_subjects) %>%
+  dplyr::select("Unique Subject Identifier", "Change from Baseline", "Analysis Relative Day", "Parameter") %>%
+  dplyr::filter(!is.na(`Change from Baseline`)) %>%
+  pivot_wider(names_from = Parameter, values_from = `Change from Baseline`) 
+
+my.grid <- expand.grid(window.center=seq(-28, 24*7-7, 1), window.half.width=1:42)
+my.grid <- my.grid %>% dplyr::mutate(study.day.left=window.center - window.half.width, study.day.right=window.center + window.half.width)
+my.grid <- my.grid %>% dplyr::filter(study.day.left > -28, study.day.right < 24*7)
+
+apply(matrix(1:nrow(my.grid)),1, function(y){ 
+temp <- CDSD %>% dplyr::filter(`Study Day of Finding` >= my.grid$study.day.left[y] & 
+                               `Study Day of Finding` <= my.grid$study.day.right[y]) %>%
+ group_by(`Unique Subject Identifier`) %>% 
+  dplyr::mutate(GISS = (`CDS1-How Severe Was Your Abdominal Pain`+
+                  `CDS1-How Severe Was Your Bloating`+
+                  `CDS1-How Severe Was Your Diarrhea`+
+                  `CDS1-How Severe Was Your Nausea`)/4) %>%
+  dplyr::summarise(
+    GISS = mean(GISS,na.rm=TRUE),
+    `CDS1-Bowel Movements Type 6 or 7` = mean(`CDS1-Bowel Movements Type 6 or 7`, na.rm = TRUE),
+                   `CDS1-How Many Bowel Movements` = mean(`CDS1-How Many Bowel Movements`, na.rm = TRUE),
+                   `CDS1-How Many Times Did You Vomit` = mean(`CDS1-How Many Times Did You Vomit`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Abdominal Pain` = mean(`CDS1-How Severe Was Your Abdominal Pain`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Bloating` = mean(`CDS1-How Severe Was Your Bloating`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Diarrhea` = mean(`CDS1-How Severe Was Your Diarrhea`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Nausea` = mean(`CDS1-How Severe Was Your Nausea`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Tiredness` = mean(`CDS1-How Severe Was Your Tiredness`, na.rm = TRUE))
+                   
+temp <- temp %>% left_join(Hist, by = "Unique Subject Identifier") %>% dplyr::select(-`Analysis Relative Day`)
+
+(apply(matrix(2:10),1,function(x){
+  for.report <- data.frame(cbind(cor(temp[,x], temp$`Villus Height/Crypt Depth`, use="pairwise.complete.obs"),
+  cor(temp[,x], temp$`CD3 Intraepithelial Lymphocytes Count`, use="pairwise.complete.obs"))) %>% 
+    setNames(c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count")) %>% 
+    mutate(Endpoint = colnames(temp)[x])
+  row.names(for.report) <- NULL
+  for.report %>% dplyr::mutate(window.center=my.grid[y,1], window.half.width=my.grid[y,2], window.left=window.center-window.half.width, window.right=window.center+window.half.width)
+})) %>% bind_rows()  
+
+}) %>% bind_rows() -> results
+
+results %>% ggplot(aes(x=`Villus Height/Crypt Depth`)) + geom_histogram() + facet_wrap(~Endpoint) +geom_vline(xintercept = 0, linetype="dashed")
+results %>% ggplot(aes(x=`CD3 Intraepithelial Lymphocytes Count`)) + geom_histogram() + facet_wrap(~Endpoint) +geom_vline(xintercept = 0, linetype="dashed")+scale_x_continuous(limits=c(-1,1.1), breaks=seq(-1,1.1,0.2))
+
+write.csv(results, "correlation-across-windows-histology.csv")
+
+pdf("correlation-across-windows-histology.pdf", h=8.5, w=11)
+results %>% dplyr::filter(window.half.width > 1) %>% ggplot(aes(x = window.center, y=`Villus Height/Crypt Depth`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in VHCD and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results %>% dplyr::filter(window.half.width > 7 & window.half.width < 14) %>% ggplot(aes(x = window.center, y=`Villus Height/Crypt Depth`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in VHCD and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results %>% dplyr::filter(window.half.width >= 1 & window.half.width < 7) %>% ggplot(aes(x = window.center, y=`Villus Height/Crypt Depth`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in VHCD and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+
+results %>% dplyr::filter(window.half.width > 1) %>% ggplot(aes(x = window.center, y=`CD3 Intraepithelial Lymphocytes Count`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in IEL Count and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results %>% dplyr::filter(window.half.width > 7 & window.half.width < 14) %>% ggplot(aes(x = window.center, y=`CD3 Intraepithelial Lymphocytes Count`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in IEL Count and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results %>% dplyr::filter(window.half.width >= 1 & window.half.width < 7) %>% ggplot(aes(x = window.center, y=`CD3 Intraepithelial Lymphocytes Count`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in IEL Count and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+dev.off()
+
+```
+
+VISIT 5 CHANGE
+```{r}
+vce <- read_csv(path(output_dir,"8 analysis.data.in-ML-BVA.csv"))
+
+vce %>% dplyr::filter(VISIT =="VISIT 2 - Week -4") %>% dplyr::select(STUDYID, SUBJID, "BVA", "Tertile1_Max", "Tertile2_Mean", 
+"Tertile2_Max", "Tertile3_Mean", "Tertile3_Max", "All_Mean",               
+"All_Max", "First5Percent_Mean") %>%
+  dplyr::mutate(SUBJID = paste0(STUDYID, "-", SUBJID)) %>% dplyr::select(-c(1)) %>% dplyr::mutate(visit="SCREEN") %>% pivot_longer(2:10) -> vce.screen
+vce %>% dplyr::filter(VISIT =="VISIT 5 - Week 12") %>% dplyr::select(STUDYID, SUBJID, "BVA", "Tertile1_Max", "Tertile2_Mean", 
+"Tertile2_Max", "Tertile3_Mean", "Tertile3_Max", "All_Mean",               
+"All_Max", "First5Percent_Mean") %>%
+  dplyr::mutate(SUBJID = paste0(STUDYID, "-", SUBJID)) %>% dplyr::select(-c(1)) %>% dplyr::mutate(visit="W12") %>% pivot_longer(2:10) -> vce.v5
+
+bind_rows(vce.screen, vce.v5) %>% group_by(SUBJID, name) %>% dplyr::mutate(n=n()) %>% dplyr::filter(n==2) %>%
+  arrange(SUBJID, name, visit) %>% dplyr::mutate(change = value[2] - value[1]) %>%
+  group_by(SUBJID, name) %>% slice(1) %>% dplyr::select(-value) %>% pivot_wider(names_from = name, values_from = change) -> vce.change.v5
+
+vce.change.v5 <- vce.change.v5 %>% dplyr::rename(`Unique Subject Identifier` = SUBJID)
+
+#---------- VISIT 5 CHANGE
+my.grid <- expand.grid(window.center=seq(-28, 24*7-7, 7), window.half.width=1:28)
+my.grid <- my.grid %>% dplyr::mutate(study.day.left=window.center - window.half.width, study.day.right=window.center + window.half.width)
+my.grid <- my.grid %>% dplyr::filter(study.day.left > -28, study.day.right < 24*7)
+
+
+
+apply(matrix(1:nrow(my.grid)),1, function(y){ 
+temp <- CDSD %>% dplyr::filter(`Study Day of Finding` >= my.grid$study.day.left[y] & 
+                               `Study Day of Finding` <= my.grid$study.day.right[y]) %>%
+ group_by(`Unique Subject Identifier`) %>% 
+  dplyr::mutate(GISS = (`CDS1-How Severe Was Your Abdominal Pain`+
+                  `CDS1-How Severe Was Your Bloating`+
+                  `CDS1-How Severe Was Your Diarrhea`+
+                  `CDS1-How Severe Was Your Nausea`)/4) %>%
+  dplyr::summarise(
+    GISS = mean(GISS,na.rm=TRUE),
+    `CDS1-Bowel Movements Type 6 or 7` = mean(`CDS1-Bowel Movements Type 6 or 7`, na.rm = TRUE),
+                   `CDS1-How Many Bowel Movements` = mean(`CDS1-How Many Bowel Movements`, na.rm = TRUE),
+                   `CDS1-How Many Times Did You Vomit` = mean(`CDS1-How Many Times Did You Vomit`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Abdominal Pain` = mean(`CDS1-How Severe Was Your Abdominal Pain`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Bloating` = mean(`CDS1-How Severe Was Your Bloating`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Diarrhea` = mean(`CDS1-How Severe Was Your Diarrhea`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Nausea` = mean(`CDS1-How Severe Was Your Nausea`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Tiredness` = mean(`CDS1-How Severe Was Your Tiredness`, na.rm = TRUE))
+                   
+temp <- temp %>% left_join(vce.change.v5, by = "Unique Subject Identifier")
+
+(apply(matrix(2:10),1,function(x){
+  for.report <- data.frame(bind_cols(
+    cor(temp[,x], temp$BVA, use="pairwise.complete.obs"),
+    cor(temp[,x], temp$`Tertile2_Mean`, use="pairwise.complete.obs"),
+    cor(temp[,x], temp$`Tertile3_Mean`, use="pairwise.complete.obs"),
+    )) %>% 
+    setNames(c("BVA", "Tertile2_Mean", "Tertile3_Mean")) %>% 
+    mutate(Endpoint = colnames(temp)[x])
+  row.names(for.report) <- NULL
+  for.report %>% dplyr::mutate(window.center=my.grid[y,1], window.half.width=my.grid[y,2], window.left=window.center-window.half.width, window.right=window.center+window.half.width)
+})) %>% bind_rows()  
+
+}) %>% bind_rows() -> results.vce.5
+
+results.vce.5 %>% ggplot(aes(x=BVA)) + geom_histogram() + facet_wrap(~Endpoint) +geom_vline(xintercept = 0, linetype="dashed")
+results %>% ggplot(aes(x=`CD3 Intraepithelial Lymphocytes Count`)) + geom_histogram() + facet_wrap(~Endpoint) +geom_vline(xintercept = 0, linetype="dashed")+scale_x_continuous(limits=c(-1,1.1), breaks=seq(-1,1.1,0.2))
+
+write.csv(results.vce.5, "correlation-across-windows-vce.12w.csv")
+
+pdf("correlation-across-windows-vce.12w.pdf", h=8.5, w=11)
+results.vce.5 %>% dplyr::filter(window.half.width > 1) %>% ggplot(aes(x = window.center, y=`BVA`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in BVA and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results.vce.5 %>% dplyr::filter(window.half.width > 7 & window.half.width < 14) %>% ggplot(aes(x = window.center, y=`BVA`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in BVA and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results.vce.5 %>% dplyr::filter(window.half.width >= 1 & window.half.width < 7) %>% ggplot(aes(x = window.center, y=`BVA`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in BVA and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+# Tertile 2
+results.vce.5 %>% dplyr::filter(window.half.width > 1) %>% ggplot(aes(x = window.center, y=`Tertile2_Mean`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in Tertile1 Mean and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results.vce.5 %>% dplyr::filter(window.half.width > 7 & window.half.width < 14) %>% ggplot(aes(x = window.center, y=`Tertile2_Mean`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in Tertile1 Mean and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results.vce.5 %>% dplyr::filter(window.half.width >= 1 & window.half.width < 7) %>% ggplot(aes(x = window.center, y=`Tertile2_Mean`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in Tertile1 Mean and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+# Tertile 2
+results.vce.5 %>% dplyr::filter(window.half.width > 1) %>% ggplot(aes(x = window.center, y=`Tertile3_Mean`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in Tertile2 Mean and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results.vce.5 %>% dplyr::filter(window.half.width > 7 & window.half.width < 14) %>% ggplot(aes(x = window.center, y=`Tertile3_Mean`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in Tertile2 Mean and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results.vce.5 %>% dplyr::filter(window.half.width >= 1 & window.half.width < 7) %>% ggplot(aes(x = window.center, y=`Tertile3_Mean`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in Tertile2 Mean and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+dev.off()
+```
+
+VISIT 6 CHANGE
+```{r}
+vce <- read_csv(path(output_dir,"8 analysis.data.in-ML-BVA.csv"))
+
+vce %>% dplyr::filter(VISIT =="VISIT 2 - Week -4") %>% dplyr::select(STUDYID, SUBJID, "BVA", "Tertile1_Max", "Tertile2_Mean", 
+"Tertile2_Max", "Tertile3_Mean", "Tertile3_Max", "All_Mean",               
+"All_Max", "First5Percent_Mean") %>%
+  dplyr::mutate(SUBJID = paste0(STUDYID, "-", SUBJID)) %>% dplyr::select(-c(1)) %>% dplyr::mutate(visit="SCREEN") %>% pivot_longer(2:10) -> vce.screen
+
+vce %>% dplyr::filter(VISIT =="VISIT 6 - Week 24") %>% dplyr::select(STUDYID, SUBJID, "BVA", "Tertile1_Max", "Tertile2_Mean", 
+"Tertile2_Max", "Tertile3_Mean", "Tertile3_Max", "All_Mean",               
+"All_Max", "First5Percent_Mean") %>%
+  dplyr::mutate(SUBJID = paste0(STUDYID, "-", SUBJID)) %>% dplyr::select(-c(1))  %>% dplyr::mutate(visit="W24") %>% pivot_longer(2:10) -> vce.v6
+
+
+bind_rows(vce.screen, vce.v6) %>% group_by(SUBJID, name) %>% dplyr::mutate(n=n()) %>% dplyr::filter(n==2) %>%
+  arrange(SUBJID, name, visit) %>% dplyr::mutate(change = value[2] - value[1]) %>%
+  group_by(SUBJID, name) %>% slice(1) %>% dplyr::select(-value) %>% pivot_wider(names_from = name, values_from = change) -> vce.change.v6
+
+vce.change.v6 <- vce.change.v6 %>% dplyr::rename(`Unique Subject Identifier` = SUBJID)
+my.grid <- expand.grid(window.center=seq(-28, 24*7-7, 7), window.half.width=1:28)
+my.grid <- my.grid %>% dplyr::mutate(study.day.left=window.center - window.half.width, study.day.right=window.center + window.half.width)
+my.grid <- my.grid %>% dplyr::filter(study.day.left > -28, study.day.right < 24*7)
+
+apply(matrix(1:nrow(my.grid)),1, function(y){ 
+temp <- CDSD %>% dplyr::filter(`Study Day of Finding` >= my.grid$study.day.left[y] & 
+                               `Study Day of Finding` <= my.grid$study.day.right[y]) %>%
+ group_by(`Unique Subject Identifier`) %>% 
+  dplyr::mutate(GISS = (`CDS1-How Severe Was Your Abdominal Pain`+
+                  `CDS1-How Severe Was Your Bloating`+
+                  `CDS1-How Severe Was Your Diarrhea`+
+                  `CDS1-How Severe Was Your Nausea`)/4) %>%
+  dplyr::summarise(
+    GISS = mean(GISS,na.rm=TRUE),
+    `CDS1-Bowel Movements Type 6 or 7` = mean(`CDS1-Bowel Movements Type 6 or 7`, na.rm = TRUE),
+                   `CDS1-How Many Bowel Movements` = mean(`CDS1-How Many Bowel Movements`, na.rm = TRUE),
+                   `CDS1-How Many Times Did You Vomit` = mean(`CDS1-How Many Times Did You Vomit`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Abdominal Pain` = mean(`CDS1-How Severe Was Your Abdominal Pain`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Bloating` = mean(`CDS1-How Severe Was Your Bloating`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Diarrhea` = mean(`CDS1-How Severe Was Your Diarrhea`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Nausea` = mean(`CDS1-How Severe Was Your Nausea`, na.rm = TRUE),
+                   `CDS1-How Severe Was Your Tiredness` = mean(`CDS1-How Severe Was Your Tiredness`, na.rm = TRUE))
+                   
+temp <- temp %>% left_join(vce.change.v6, by = "Unique Subject Identifier") 
+
+(apply(matrix(2:10),1,function(x){
+   for.report <- data.frame(bind_cols(
+    cor(temp[,x], temp$BVA, use="pairwise.complete.obs"),
+    cor(temp[,x], temp$`Tertile2_Mean`, use="pairwise.complete.obs"),
+    cor(temp[,x], temp$`Tertile3_Mean`, use="pairwise.complete.obs"),
+    )) %>% 
+    setNames(c("BVA", "Tertile2_Mean", "Tertile3_Mean")) %>% 
+    mutate(Endpoint = colnames(temp)[x])
+  row.names(for.report) <- NULL
+  for.report %>% dplyr::mutate(window.center=my.grid[y,1], window.half.width=my.grid[y,2], window.left=window.center-window.half.width, window.right=window.center+window.half.width)
+})) %>% bind_rows()  
+
+}) %>% bind_rows() -> results.vce.6
+
+results.vce.6 %>% ggplot(aes(x=`BVA`)) + geom_histogram() + facet_wrap(~Endpoint) +geom_vline(xintercept = 0, linetype="dashed")
+results.vce.6 %>% ggplot(aes(x=`Tertile2_Mean`)) + geom_histogram() + facet_wrap(~Endpoint) +geom_vline(xintercept = 0, linetype="dashed")+scale_x_continuous(limits=c(-1,1.1), breaks=seq(-1,1.1,0.2))
+results.vce.6 %>% ggplot(aes(x=`Tertile3_Mean`)) + geom_histogram() + facet_wrap(~Endpoint) +geom_vline(xintercept = 0, linetype="dashed")
+
+write.csv(results.vce.6, "correlation-across-windows-vce.24.csv")
+
+
+# BVA
+pdf("correlation-across-windows-vce.24.pdf", h=8.5, w=11)
+results.vce.6 %>% dplyr::filter(window.half.width > 1) %>% ggplot(aes(x = window.center, y=`BVA`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in BVA and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results.vce.6 %>% dplyr::filter(window.half.width > 7 & window.half.width < 14) %>% ggplot(aes(x = window.center, y=`BVA`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in BVA and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results.vce.6 %>% dplyr::filter(window.half.width >= 1 & window.half.width < 7) %>% ggplot(aes(x = window.center, y=`BVA`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in BVA and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+# Tertile 2
+results.vce.6 %>% dplyr::filter(window.half.width > 1) %>% ggplot(aes(x = window.center, y=`Tertile2_Mean`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in Tertile2 Mean and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results.vce.6 %>% dplyr::filter(window.half.width > 7 & window.half.width < 14) %>% ggplot(aes(x = window.center, y=`Tertile2_Mean`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in Tertile2 Mean and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results.vce.6 %>% dplyr::filter(window.half.width >= 1 & window.half.width < 7) %>% ggplot(aes(x = window.center, y=`Tertile2_Mean`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in VHCD and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+# Tertile 3
+results.vce.6 %>% dplyr::filter(window.half.width > 1) %>% ggplot(aes(x = window.center, y=`Tertile3_Mean`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in Tertile3 Mean and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results.vce.6 %>% dplyr::filter(window.half.width > 7 & window.half.width < 14) %>% ggplot(aes(x = window.center, y=`Tertile3_Mean`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in Tertile3 Mean and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+
+results.vce.6 %>% dplyr::filter(window.half.width >= 1 & window.half.width < 7) %>% ggplot(aes(x = window.center, y=`Tertile3_Mean`, color=window.half.width)) + geom_point(alpha=.5) + facet_wrap(~Endpoint, scales="free_y") + geom_hline(yintercept = 0, linetype="dashed") + labs(title="Correlations between Change in Tertile3 Mean and Symptoms", subtitle="For Symptom windows of varying lengths", x="Window center", y="Correlation coefficient", color="Window half-width", caption="Vertical lines at Weeks 0, 12, 24")+theme(legend.position = "bottom")+
+  geom_hline(yintercept = c(-.2,0,.2), linetype="dashed")+geom_vline(xintercept = c(0, 12*7, 24*7), linetype="dashed")
+dev.off()
+
+```
+
+
+
+
+
+

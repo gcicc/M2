@@ -1,0 +1,1012 @@
+---
+title: "IRT exploration"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+## Code
+
+```{r}
+
+
+################# General Fit function for fixed difficulty functions with varying
+#################   response function (discrimination parameter fixed, alpha=1)
+
+##################################
+############################ end difficulty
+
+
+
+ThreshModFixedResp <- function(dat,commonslope ,indicator=indicator, der=der,lin =lin, start, startind,respf){
+  
+  ##  Resp for various response functions
+  #datt I x P matrix responses
+  
+  #commonslope 
+  ### com: common slope in difficulty functions 
+  ### var varying slopes
+  
+  #indicator  <- "C"
+  ###   C: continuous 
+  ###   D: discrete
+  
+  #lin <- "log"
+  ### lin: linear item difficulties
+  ### log1: log(1+y)
+  ### logit for transformed data, only indicator == C
+  
+  #der <- "no"  #with derivative (only for varying slope)
+  ###  der: with derivative
+  ### no: without
+  
+  # start  are starting values, used if startind "yes"
+  
+  # output I x 2 matrix for splines = fixed  
+  #        I  x bnumbasis for splines =S
+  
+  ##### respone functions
+  #  respf: Nv normal
+  #         logit logistic
+  
+  #if(respf=="NV"){respfctd <- respfctdNV
+  #              respfctc<-respfctcNV
+  #              respfctder<-respfctderNV}
+  #if(respf=="logit"){respfctd <- respfctdlogit
+  #              respfctc<-respfctclogit
+  #              respfctder<-respfctderlogit}
+  #if(respf=="Gumbel"){respfctd <- respfctdGumbel
+  #             respfctc<-respfctcGumbel
+  #             respfctder<-respfctderGumbel}
+  #####################
+  
+  
+  datt <- dat
+  I <- dim(datt)[1]  
+  P <- dim(datt)[2]
+  
+  stderr<-0
+  itemsums <- rowSums(datt)/P
+  deriv <- 0
+  ### data transformation if lin= inv
+  if(lin=="inv"){
+    datorig <-datt
+    width<- max(datt)-min(datt)
+    norm<- 10
+    mintr <- min(datt)- width/norm
+    maxtr <- max(datt)+ width/norm
+    datstd<- (datt -mintr)/(maxtr-mintr)
+    datt <-datstd} 
+  
+  ##########################  
+  ### for fixed slope without derivative
+  
+  if (commonslope == "com"){
+    #par <- 0.2*seq(1,I+1,1)
+    par1 <- -itemsums/3   #####  /3 included!!!!!!!
+    par <- c(par1,1,1)
+    if(startind == "yes") par <- start
+    
+    fit <- optim(par, LoglikIntExtN, gr = NULL,dat=datt,I=I, indicator = indicator, lin =lin, method = "Nelder-Mead",
+                 lower = -Inf, upper = Inf,
+                 control = list(), hessian = FALSE)
+    
+    incpt <- fit$par[1:I]
+    slope <- rep(fit$par[I+1],I)
+    parmatrest <- cbind(incpt,slope) 
+    stdmixt <- fit$par[I+2]
+    #parres<-fitd$par
+    stderrmatrix<-0
+    stderrmixt<-0
+    }
+  
+  ### for varying slope 
+  if (commonslope == "var"){
+    par1 <- -itemsums/5  #####  /3 included!!!!!!!
+    par2 <- rep(1,I)
+    par <- c(par1,par2,1) 
+    if(startind == "yes") par <- start
+    
+    if (der == "der"){
+      #####   mit derivative   
+      
+      
+      
+      fit <- optim(par, LoglikN, gr = derLoglikN, dat=datt,I=I,indicator =indicator, lin =lin,  method = "BFGS",
+                   lower = -Inf, upper = Inf,control = list(maxit=300), hessian = TRUE)
+      
+      parmatrest <- matrix(fit$par[1:length(par)-1],I,2)
+      
+      stdmixt <- fit$par[length(par)]
+      
+      stderrin<- solve(fit$hessian)
+      stderr<-sqrt(diag(stderrin))
+      stderrmatrix<-matrix(stderr[1:length(par)-1],I,2)
+      stderrmixt<-stderr[length(par)]
+      
+      
+    } ### end der
+    
+    if (der != "der"){          
+      ####
+      
+      fit <- optim(par, LoglikN, gr = NULL, dat=datt,I=I,indicator =indicator, lin =lin,  method = "Nelder-Mead",
+                   lower = -Inf, upper = Inf, control = list(maxit=500), hessian = FALSE)
+      #LoglikN(par,dat,I,indicator, lin=lin )
+      numpar <- length(par)
+      parmatrest <- matrix(fit$par[1:numpar-1],I,2)
+      stdmixt <- fit$par[numpar:numpar]
+      #parres<-fit$par
+    }#### end der
+    #if(indicator=="C")
+    deriv<-derLoglikN(fit$par,datt,I,indicator, lin =lin)  
+  } ### end common slope var
+  
+  ### positive stddev
+  stdmixt<-abs(stdmixt) 
+  fit$par[length(fit$par)] <-abs(fit$par[length(fit$par)])  
+  
+  
+  
+  ##############################################
+  
+  #### 
+  AIC <-  2*fit$value +2*length(par)
+  BIC <-  2*fit$value +2*log(length(par))
+  
+  newList <- list("parmatrix" = parmatrest,"stdmixt"=stdmixt,"Loglik"=-fit$value,"par"=fit$par,
+                  "convergence"=fit$convergence,"AIC"=AIC, "BIC"=BIC, "deriv"=deriv,"stderr"=stderr,
+                  "stderrmatrix"=stderrmatrix,"stderrmixt"=stderrmixt)
+  return(newList)
+} 
+################################################################ 
+
+
+
+
+
+############################# negative Loglikelihood function mit stdmixt
+LoglikN <-function(par,dat,I,indicator, lin=lin ){
+  
+  indmix<- 2*I
+  sdnormal<- par[indmix+1]
+  paroriginal <- par[1:indmix]
+  parmatr <- matrix(paroriginal,I,2)
+  
+  slope <- 1 ### slope fixed  
+  #I <- dim(dat)[1]
+  P <- dim(dat)[2]
+  sum <- 0
+  for (p in 1:P){
+    datitem <- dat[,p]
+    
+    int <-gauss.hermite(prodfct, mu = 0, sd = sdnormal,datitem=datitem,I=I,parmatr=parmatr,slope=slope,
+                        indicator=indicator, lin =lin,order = 10)
+    sum <- sum +log(int)
+    
+    #printres <- c("loglik-person",p, par,"log-int",log(int))
+    #print(printres)
+  }
+  
+  sum<- -sum
+  
+  #gauss.hermite(prodfct, mu = 0, sd = sdnormal,datitem=datitem,I=I,parmatr=parmatr,slope=slope,
+  #              indicator=indicator, lin =lin)
+  #printres <- c("loglik-par",par,"loglik-sum",sum)
+  #print(printres)
+  return(sum)}
+###############
+
+
+
+
+############################# derivative negative Loglikelihood function
+derLoglikN <-function(par,dat,I,indicator, lin =lin){
+  ## works for lin = lin or log (difficulty functions)
+  ## N version with stdmixt
+  ### wohl nur für stetige und varying slopes
+  ### stmixt computed numerically, delta<- 0.0001
+  
+  delta<- 0.0001
+  lpar <- 2*I+1
+  
+  der <- matrix(0,lpar,1)
+  parmatr <- matrix(par[1:lpar-1],I,2)
+  slope <- 1 ### slope fixed  
+  #I <- dim(dat)[1]
+  
+  stdmixt <- par[lpar]
+  P <- dim(dat)[2]
+  
+  ### nominator
+  # intercepts
+  
+  for (p in 1:P){
+    datitem <- dat[,p]
+    ### denominator
+    intn <-gauss.hermite(prodfct, mu = 0, sd = stdmixt,datitem=datitem,I=I,parmatr=parmatr,slope=slope,
+                         indicator=indicator, lin =lin,order = 10)  
+    for (l in 1:I){
+      comp <- l
+      der[l,1] <-der[l,1]+gauss.hermite(prodfctderiv1, mu = 0, sd = stdmixt,datitem=datitem,I=I,parmatr=parmatr,
+                                        slope=slope,indicator=indicator, lin =lin,order = 10,comp=comp)/intn
+    }} # end p
+  
+  #prodfct <-function(theta,datitem=datitem,I=I,parmatr=parmatr,slope=slope,indicator=indicator, lin =lin)
+  #gauss.hermite(prodfct, mu = 0, sd = stdmixt,datitem=datitem,I=I,parmatr=parmatr,slope=slope,
+  #indicator=indicator, lin =lin) 
+  #slopes
+  
+  for (p in 1:P){
+    datitem <- dat[,p]
+    ### denominator
+    intn <-gauss.hermite(prodfct, mu = 0, sd = stdmixt,datitem=datitem,I=I,parmatr=parmatr,slope=slope,
+                         indicator=indicator, lin =lin,order = 10)
+    for (l in  1:I){
+      comp <- l
+      der[I+l,1] <-der[I+l,1]+gauss.hermite(prodfctderiv2, mu = 0, sd = stdmixt,datitem=datitem,I=I,parmatr=parmatr,
+                                            slope=slope,indicator=indicator, lin =lin,order = 10,comp=comp)/intn
+    }} # end p
+  
+  
+  # stdmixt with formula - not used 
+  omit <-1  
+  if(omit < 0){
+    for (p in 1:P){
+      datitem <- dat[,p]
+      ### denominator
+      intn <-gauss.hermite(prodfct, mu = 0, sd = stdmixt,datitem=datitem,I=I,parmatr=parmatr,slope=slope,
+                           indicator=indicator, lin =lin,order = 10)
+      smixt <- par[lpar]
+      
+      
+      
+      
+      der[lpar,1] <-der[lpar,1]+gauss.hermite(prodfctderiv3, mu = 0, sd = stdmixt,datitem=datitem,I=I,parmatr=parmatr,
+                                              slope=slope,indicator=indicator, lin =lin,order = 10,smixt)/intn
+    } # end p
+  } #end omit
+  
+  #### now numeric
+  
+  vect1<- par
+  vect1[lpar] <- vect1[lpar]+delta
+  loglikorig  <- LoglikN(par,dat,I,indicator, lin=lin)
+  loglikorignow <- LoglikN(vect1,dat,I,indicator, lin=lin)
+  
+  derivnow <- (loglikorignow-loglikorig)/delta
+  der[lpar,1]<- -derivnow
+  
+  
+  ##### end numeric
+  
+  
+  der <- -der
+  #printres <- c("der",par,"der",der)
+  #print(printres)
+  return(der)}
+#################################################
+
+
+
+
+
+
+
+##### GH function
+prodfct <-function(theta,datitem=datitem,I=I,parmatr=parmatr,slope=slope,indicator=indicator, lin =lin){
+  prod <-1  
+  if(indicator=="C"){
+    for (i in 1:I){
+      iteml <- parmatr[i,]
+      prod <- prod*deltalinNVdens(datitem[i],iteml,slope , theta, lin =lin)}
+  } #end if
+  
+  if(indicator=="D"){
+    for (i in 1:I){
+      iteml <- parmatr[i,]
+      prod <- prod*deltalinNVdensDiscr(datitem[i],iteml,slope , theta, lin =lin)}
+  } #end if  
+  
+  return(prod)} 
+
+########################  
+
+##### GH function derivative   
+prodfctderiv1 <-function(theta,datitem=datitem,I=I,parmatr=parmatr,slope=slope,indicator=indicator, lin=lin,
+                         comp=comp){
+  
+  ###### 1 for intercepts
+  ### comp is item 
+  ###  for indicator C and D
+  
+  set <- seq(1,I,1)
+  
+  if(indicator=="C"){
+    
+    ##### now no lin distiction
+    #if(lin=="lin"){
+      iteml <- parmatr[comp,]
+      #arg <- theta - iteml[1]-iteml[2]*datitem[comp]  ####?
+      #prod <- -respfctder(arg)*iteml[2]  ### resp der replaced
+      
+     
+     #prod<- -diffctder(slope,theta,val,iteml[2],1)      
+       
+     
+     val<-diffunct(iteml[1],iteml[2],datitem[comp])
+     prod<- -respfctder(slope*theta - val)*derdiffunct(iteml[1],iteml[2],datitem[comp])
+     
+     #diffctderlin <-function(slope,theta,val,slopediff,y){
+     #  r<-respfctder(slope*theta - val)*slopediff 
+     #  return(r)   }
+     
+     nonset <- set[-comp]  
+      for (i in nonset){
+        iteml <- parmatr[i,]
+        prod <- prod*deltalinNVdens(datitem[i],iteml,slope , theta, lin =lin) }
+    #}# end if lin
+    
+    ## with "no" neutralized , former "log"
+    if(lin=="no"){
+      iteml <- parmatr[comp,]
+      arg <- theta - iteml[1]-iteml[2]*log(1+datitem[comp])
+      #prod <- exp(- arg*arg/2)*arg*iteml[2]/((1+datitem[comp])*sqrt(2*pi))
+      prod <- -respfctder(arg)*iteml[2]/(1+datitem[comp])  ### resp der !!
+      
+      nonset <- set[-comp]  
+      for (i in nonset){
+        iteml <- parmatr[i,]
+        prod <- prod*deltalinNVdens(datitem[i],iteml,slope , theta, lin =lin) }
+    }# end if lin
+    
+  } #end if C
+  
+  
+  #### trial Aug 21
+  
+  if(indicator=="D"){
+    #if(lin=="log"){
+      iteml <- parmatr[comp,]
+      if (datitem[comp]>0){
+        #arg1 <- theta - iteml[1]-iteml[2]*log(1+datitem[comp]-1)
+        #arg2 <- theta - iteml[1]-iteml[2]*log(1+datitem[comp])
+        #prod <- -respfctd(arg1)+respfctd(arg2)
+      
+        arg1 <- theta -diffunct(iteml[1],iteml[2],datitem[comp]-1)
+        arg2 <- theta -diffunct(iteml[1],iteml[2],datitem[comp])
+        prod <- -respfctd(arg1)+respfctd(arg2)
+                          }
+      if (datitem[comp]<=0){arg2 <- theta -diffunct(iteml[1],iteml[2],datitem[comp])
+        prod <- respfctd(arg2)}  
+      
+      nonset <- set[-comp]  
+      for (i in nonset){
+        iteml <- parmatr[i,]
+        prod <- prod*deltalinNVdensDiscr(datitem[i],iteml,slope , theta, lin =lin) }
+    #} # end if lin
+  } #end if  
+  
+  return(prod)} 
+
+########################  
+
+
+
+
+##### GH function derivative   continuous
+prodfctderiv2 <-function(theta,datitem=datitem,I=I,parmatr=parmatr,slope=slope,indicator=indicator, lin=lin,
+                         comp=comp){
+  
+  ###### 2 for slopes
+  ### comp is item 
+  ### only for indicator C
+  
+  set <- seq(1,I,1)
+  
+  if(indicator=="C"){
+    
+ #### new general, rest neutralized
+    iteml <- parmatr[comp,]
+    val<-diffunct(iteml[1],iteml[2],datitem[comp])
+    
+    prod<- {-diffunct(0,1,datitem[comp])*respfctder(slope*theta - val)*derdiffunct(iteml[1],iteml[2],datitem[comp])+
+        respfctd(slope*theta - val)*derdiffunct(0,1,datitem[comp])}
+    
+    nonset <- set[-comp]  
+    for (i in nonset){
+      iteml <- parmatr[i,]
+      prod <- prod*deltalinNVdens(datitem[i],iteml,slope , theta, lin =lin)}
+    #####
+    
+    } #end if C
+  
+  
+  if(indicator=="D"){
+    #if(lin=="log"){
+      iteml <- parmatr[comp,]
+      if (datitem[comp]>0){
+        #arg1 <- theta - iteml[1]-iteml[2]*log(1+datitem[comp]-1)
+        #arg2 <- theta - iteml[1]-iteml[2]*log(1+datitem[comp])
+        #prod <- -dnorm(arg1,0,1)*log(datitem[comp])+dnorm(arg2,0,1)*log(1+datitem[comp])
+        
+        arg1 <- theta -diffunct(iteml[1],iteml[2],datitem[comp]-1)
+        arg2 <- theta -diffunct(iteml[1],iteml[2],datitem[comp])
+        prod <- -respfctd(arg1)*diffunct(0,1,datitem[comp]-1)  +respfctd(arg2)*diffunct(0,1,datitem[comp])
+                         }
+      
+      
+      if (datitem[comp]<=0){arg2 <- theta - diffunct(iteml[1],iteml[2],datitem[comp])
+      prod <- respfctd(arg2)*diffunct(0,1,datitem[comp])}  
+      
+      nonset <- set[-comp]  
+      for (i in nonset){
+        iteml <- parmatr[i,]
+        prod <- prod*deltalinNVdensDiscr(datitem[i],iteml,slope , theta, lin =lin) }
+    #} # end if lin
+  } #end if  
+  
+  return(prod)} 
+
+########################  
+
+##### for stdmixt
+prodfctderiv3 <-function(theta,datitem=datitem,I=I,parmatr=parmatr,slope=slope,indicator=indicator, lin =lin,
+                         smixt   ){
+  ### comp here stdmixt
+  stdmixt<- smixt
+  prod <-1  
+  if(indicator=="C"){
+    for (i in 1:I){
+      iteml <- parmatr[i,]
+      prod <- prod*deltalinNVdens(datitem[i],iteml,slope , theta, lin =lin)}
+    
+    #### here modified
+    #prod <- prod*exp(-(theta/stdmixt)^2/2)*(theta^2-stdmixt^2)/(stdmixt^4*sqrt(2*pi))
+    
+    prod <- prod*(theta^2-stdmixt^2)/(stdmixt^3)
+  } #end if
+  
+  if(indicator=="D"){
+    for (i in 1:I){
+      iteml <- parmatr[i,]
+      prod <- prod*deltalinNVdensDiscr(datitem[i],iteml,slope , theta, lin =lin)}
+    prod <- prod*(theta^2-stdmixt^2)/(stdmixt^3) ##??
+  } #end if  
+  
+  return(prod)} 
+
+
+##################################### extended version with common item slope with  stdmixt
+LoglikIntExtN <-function(par,dat,I,indicator, lin=lin){
+  
+  ###only intercept, common slope
+  #parmatr <- matrix(par,I,2)
+  # par vector intercept items, length I+1 letzter is slope
+  slope <- 1 ### slope fixed  weight on theta!
+  #I <- dim(dat)[1]
+  P <- dim(dat)[2]
+  
+  sdnormal<- par[I+2]
+  paroriginal <- par[1:I]
+  
+  sum <- 0
+  for (p in 1:P){
+    datitem <- dat[,p]
+    slopeitem <- par[I+1]
+    int <-gauss.hermite(prodfctIntExt, mu = 0, sd = sdnormal,datitem=datitem,I=I,par=par,slope=slope,slopeitem,
+                        indicator=indicator, lin=lin,order = 10)
+    
+    
+    ####alternative integral
+    #thetval<- seq(-5,5,0.05)
+    #intalt<- 0
+    #for (l in 1:length(thetval))intalt<- intalt+prodfctInt(thetval[l],datitem,I,par,slope)*dnorm(thetval[l])*0.05
+    #int <- intalt
+    #####  
+    
+    sum <- sum +log(int)
+  }
+  sum<- -sum
+  return(sum)}
+###############
+
+
+
+###########################
+prodfctIntExt <-function(theta,datitem=datitem,I=I,par=par,slope=slope,slopeitem=slopeitem,indicator=indicator,
+                         lin=lin){
+  ### datitem vector length I
+  #####slope on y is 1
+  prod <-1    
+  if(indicator=="C"){
+    for (i in 1:I){
+      iteml <- c(par[i],slopeitem)
+      prod <- prod*deltalinNVdens(datitem[i],iteml,slope , theta, lin=lin)}
+  } #end if
+  
+  if(indicator=="D"){
+    for (i in 1:I){
+      iteml <- c(par[i],slopeitem)
+      prod <- prod*deltalinNVdensDiscr(datitem[i],iteml,slope , theta,lin=lin)}
+  } #end if
+  
+  
+  if(indicator=="OG"){
+    #for (i in 1:I){
+    #  iteml <- c(par[i],1)
+    #  prod <- prod*deltalinNVdensR(datitem[i],iteml,slope , theta)}
+    
+    for (i in 1:I){
+      # Rasch
+      #   DFval[i,1]<-   exp(y[i]*(slope*theta - val))/(1-exp(slope*theta - val))}
+      # Ogive 
+      prod<-   prod*((1-datitem[i])*pnorm(slope*theta - par[i])+datitem[i]*(1-pnorm(slope*theta -par[i])))}
+    
+  } #end if
+  
+  if(indicator=="R"){
+    for (i in 1:I){
+      exp1 <- exp(slope*theta - par[i])/(1+exp(slope*theta - par[i]))
+      prod<-   prod*((1-datitem[i])*exp1+datitem[i]*(1-exp1))}
+    
+  } #end if
+  return(prod)}  
+#########################
+
+########################### here linear or log
+deltalinNVdens <-function(y,iteml,slope , theta, lin=lin){
+  
+  #### computes density function continuous
+  ### y vector of values
+  ### iteml lineare item coefficienten oder log - auskommentieren notwendig
+  
+  DFval <- matrix(0,length(y),1)
+  for (i in 1:length(y)){
+    ### new
+    #val <- iteml[1] + iteml[2]*y[i]
+    #DFval[i,1]<-   diffct(slope,theta,val,iteml[2],y[i])
+    
+    val <- diffunct(iteml[1],iteml[2],y[i])
+    DFval[i,1]<-   respfctd(slope*theta - val)*derdiffunct(iteml[1],iteml[2],y[i])
+    
+    #diffunct <-function(intdiff,slopediff,y)
+    ##### linear
+    #if(lin =="lin") {val <- iteml[1] + iteml[2]*y[i]
+    #DFval[i,1]<-   respfctd(slope*theta - val)*iteml[2]}
+    
+    #####  log  for positive y
+    #if(lin =="log"){val <- iteml[1] + iteml[2]*log(1+y[i])
+    #DFval[i,1]<-   respfctd(slope*theta - val)*iteml[2]/(1+y[i])}
+    
+    #####  inv
+    #if(lin =="inv"){val <- iteml[1] + iteml[2]*log(y[i]/(1-y[i]))
+    #DFval[i,1]<-   respfctd(slope*theta - val)*iteml[2]/(y[i]*(1-y[i]))}
+    
+  }
+  return(DFval)}
+#########################
+
+########################### 
+deltalinNVdensR <-function(y,iteml,slope , theta){
+  #### computes density function binary Rasch, eigentlich ogive
+  ### y vector of values
+  ### iteml lineare item coefficienten 
+  DFval <- matrix(0,length(y),1)
+  val <- iteml[1]              #################### hier
+  for (i in 1:length(y)){
+    # Rasch
+    #exp1 <- exp((slope*theta - val))/(1+exp(slope*theta - val))
+    #   DFval[i,1]<-  (1-y[i])*exp1+ y[i]*exp1)}
+    # Ogive 
+    DFval[i,1]<-   (1-y[i])*pnorm(slope*theta - val)+y[i]*(1-pnorm(slope*theta - val))}
+  return(DFval)}
+#########################
+
+########################### here linear or log
+deltalinNVdensDiscr <-function(y,iteml,slope , theta,lin=lin){
+  
+  #### computes discrete density for count data, 0,1,..
+  ### y vector of values  
+  ### iteml  item coefficienten 
+  
+  DFval <- matrix(0,length(y),1)
+  for (i in 1:length(y)){
+    
+    #val <- diffunct(iteml[1],iteml[2],y[i])
+    #DFval[i,1]<-   respfctd(slope*theta - val)*derdiffunct(iteml[1],iteml[2],y[i])
+    
+    
+    if(y[i] <= 0){val <- diffunct(iteml[1],iteml[2],y[i])
+    DFval[i,1] <- 1- respfctc(slope*theta - val)}
+    
+    if(y[i] > 0){
+      ##### linear
+      #if(lin =="lin") {valr <- iteml[1] + iteml[2]*y[i]
+      #valr1 <- iteml[1] + iteml[2]*(y[i])}
+      #####  log  for positive y
+      #if(lin =="log1"){valr <- iteml[1] + iteml[2]*log(1+y[i])
+      #valr1 <- iteml[1] + iteml[2]*log(1+y[i]-1)}
+      
+      valr <- diffunct(iteml[1],iteml[2],y[i])
+      valr1 <- diffunct(iteml[1],iteml[2],y[i]-1)
+      DFval[i,1]<-   respfctc(slope*theta - valr1)-respfctc(slope*theta - valr)}
+  }
+  return(DFval)}
+#########################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###############################################################################
+##### mit penalty nicht mehr benutzt
+
+
+############################# negative Loglikelihood function mit stdmixt und penalty
+LoglikNPen <-function(par,dat,I,indicator, lin=lin,Pen=Pen ){
+  
+  indmix<- 2*I
+  sdnormal<- par[indmix+1]
+  
+  paroriginal <- par[1:indmix]
+  parmatr <- matrix(paroriginal,I,2)
+  slope <- 1 ### slope fixed  
+  #I <- dim(dat)[1]
+  P <- dim(dat)[2]
+  sum <- 0
+  for (p in 1:P){
+    datitem <- dat[,p]
+    
+    int <-gauss.hermite(prodfct, mu = 0, sd = sdnormal,datitem=datitem,I=I,parmatr=parmatr,slope=slope,
+                        indicator=indicator, lin =lin,order = 10)
+    sum <- sum +log(int)
+  }
+  
+  M<- matrix(0,I-1,I)
+  d1 <- c(-1,1)
+  M[1,]<- c(d1,rep(0,I-2))
+  M[I-1,]<-c(rep(0,I-2),d1)
+  I2 <- I-2
+  for(l in 2:I2) M[l,]<- c(rep(0,l-1),d1,rep(0,I-l-1))
+  
+  dif <- t(M%*%parmatr[,2])%*%M%*%parmatr[,2]
+  sum <- sum +Pen*dif
+  
+  sum<- -sum
+  return(sum)}
+###############
+###############  mit Penalty, sonst unverändert
+
+derLoglikNPen <-function(par,dat,I,indicator, lin =lin,Pen=Pen){
+  ## works for lin = lin or log (difficulty functions)
+  ## N version with stdmixt
+  ### wohl nur für stetige und varying slopes
+  
+  lpar <- 2*I+1
+  
+  der <- matrix(0,lpar,1)
+  parmatr <- matrix(par[1:lpar-1],I,2)
+  slope <- 1 ### slope fixed  
+  #I <- dim(dat)[1]
+  
+  stdmixt <- par[lpar]
+  P <- dim(dat)[2]
+  
+  
+  # intercepts
+  
+  for (p in 1:P){
+    datitem <- dat[,p]
+    ### denominator
+    intn <-gauss.hermite(prodfct, mu = 0, sd = stdmixt,datitem=datitem,I=I,parmatr=parmatr,slope=slope,
+                         indicator=indicator, lin =lin,order = 10)  
+    for (l in 1:I){
+      comp <- l
+      der[l,1] <-der[l,1]+gauss.hermite(prodfctderiv1, mu = 0, sd = stdmixt,datitem=datitem,I=I,parmatr=parmatr,
+                                        slope=slope,indicator=indicator, lin =lin,order = 10,comp=comp)/intn
+    }} # end p
+  
+  #slopes
+  for (p in 1:P){
+    datitem <- dat[,p]
+    ### denominator
+    intn <-gauss.hermite(prodfct, mu = 0, sd = stdmixt,datitem=datitem,I=I,parmatr=parmatr,slope=slope,
+                         indicator=indicator, lin =lin,order = 10)
+    for (l in  1:I){
+      comp <- l
+      der[I+l,1] <-der[I+l,1]+gauss.hermite(prodfctderiv2, mu = 0, sd = stdmixt,datitem=datitem,I=I,parmatr=parmatr,
+                                            slope=slope,indicator=indicator, lin =lin,order = 10,comp=comp)/intn
+    }} # end p
+  testm<-matrix(0,P,2)
+  
+  #sdtmixt
+  for (p in 1:P){
+    datitem <- dat[,p]
+    ### denominator
+    intn <-gauss.hermite(prodfct, mu = 0, sd = stdmixt,datitem=datitem,I=I,parmatr=parmatr,slope=slope,
+                         indicator=indicator, lin =lin,order = 10)
+    
+    
+    der[lpar,1] <-der[lpar,1]+gauss.hermite(prodfctderiv3, mu = 0, sd = stdmixt,datitem=datitem,I=I,parmatr=parmatr,
+                                            slope=slope,indicator=indicator, lin =lin,order = 10,stdmixt= stdmixt)/intn
+  } # end p
+  
+  
+  ####################### nicht in der übernommen??
+  M<- matrix(0,I-1,I)
+  d1 <- c(-1,1)
+  M[1,]<- c(d1,rep(0,I-2))
+  M[I-1,]<-c(rep(0,I-2),d1)
+  I2 <- I-2
+  for(l in 2:I2) M[l,]<- c(rep(0,l-1),d1,rep(0,I-l-1))
+  
+  deriv <- 2*t(M)%*%M%*%parmatr[,2]
+  for (l in  1:I){der[I+l,1]<-Pen*deriv[l]}
+  
+  der <- -der
+  return(der)}
+
+###############
+
+
+
+
+
+
+
+
+######################################################
+
+
+
+#########################
+logist <-function(x){
+  logistic<- exp(x)/(1+exp(x))
+  return(logistic)
+}
+
+##################
+PosteriorEstimates <-function(grid,dat,I,indicator,lin =lin,parmatrest,stdest){ 
+  
+  ####computes centered posterior person parameters
+  ##### parmatrest is prameter matrix
+  
+  numgrid <- length(grid)
+  dens <- matrix(0,numgrid,1)
+  P<-dim(dat)[2]
+  esttheta <- matrix(0,P,1)
+  
+  for (p  in 1:P){obs<- dat[,p]
+  for (l in 1:numgrid){
+    theta <- grid[l]
+    dens[l,1]<-prodfct(theta,datitem=obs,I=I,parmatr=parmatrest,slope=1,indicator=indicator, lin =lin)*dnorm(theta,0,stdest)
+  }
+  num<-  which.max(dens)
+  esttheta[p]<- grid[num]
+  }
+  #### centering
+  esttheta<-esttheta-mean(esttheta)
+  
+  return(esttheta)
+}
+###### end fct  
+#prodfct <-function(theta,datitem=datitem,I=I,parmatr=parmatr,slope=slope,indicator=indicator, lin =lin)
+#parmatr<-parmatrest
+#datitem<-obs
+```
+
+
+## Exploration
+
+```{r}
+require(mvtnorm)
+
+my.data <- data.frame(SUBJID = 1:100) %>% 
+  cbind(rmvnorm(n = 100, mean = c(0, 0, 0), 
+                sigma = matrix(c(1, 0 , 0, 
+                                 0, 1, 0,
+                                 0, 0, 1), ncol=3)))
+
+get.post.est <- function(data.in = my.data, 
+                         sigma=matrix(c(1, 0 , 0, 
+                                        0, 1, 0,
+                                        0, 0, 1), ncol=3)){
+  my.data <- data.frame(SUBJID = 1:100) %>% 
+  cbind(rmvnorm(n = 100, mean = c(0, 0, 0), sigma = sigma))
+  my.common.alpha.model <- common.alpha.model(data.in = my.data)
+  Post.est.common.alpha <- PosteriorEstimates(grid=seq(-3,5,.1),
+                              data.in = my.data,
+                              I=3,
+                              indicator="C",
+                              lin="lin",
+                              parmatrest=my.common.alpha.model$parmatrix,
+                              stdest=my.common.alpha.model$stdmixt)
+  return(Post.est.common.alpha %>% mutate(sigma_12 = sigma[1,2], sigma_13=sigma[1,3], sigma_23 = sigma[2,3] ))
+}
+
+check1 <- get.post.est()
+
+check2 <- get.post.est(sigma = matrix(c(1, .1 , .1, 
+                                        .1, 1, .1,
+                                        .1, .1, 1), ncol=3))
+check3 <- get.post.est(sigma = matrix(c(1, .15, .15, 
+                                        .15, 1, .15,
+                                        .15, .15, 1), ncol=3))
+check4 <- get.post.est(sigma = matrix(c(1, .2 , .2, 
+                                        .2, 1, .2,
+                                        .2, .2, 1), ncol=3))
+check5 <- get.post.est(sigma = matrix(c(1, .25 , .25, 
+                                        .25, 1, .25,
+                                        .25, .25, 1), ncol=3))
+check6 <- get.post.est(sigma = matrix(c(1, .3 , .3, 
+                                        .3, 1, .3,
+                                        .3, .3, 1), ncol=3))
+check7 <- get.post.est(sigma = matrix(c(1, .35 , .35, 
+                                        .35, 1, .35,
+                                        .35, .35, 1), ncol=3))
+check8 <- get.post.est(sigma = matrix(c(1, .4 , .4, 
+                                        .4, 1, .4,
+                                        .4, .4, 1), ncol=3))
+check9 <- get.post.est(sigma = matrix(c(1, .45 , .45, 
+                                        .45, 1, .45,
+                                        .45, .45, 1), ncol=3))
+check10 <- get.post.est(sigma = matrix(c(1, .5 , .5, 
+                                        .5, 1, .5,
+                                        .5, .5, 1), ncol=3))
+check11 <- get.post.est(sigma = matrix(c(1, .6 , .6, 
+                                        .6, 1, .6,
+                                        .6, .6, 1), ncol=3))
+check12 <- get.post.est(sigma = matrix(c(1, .7 , .7, 
+                                        .7, 1, .7,
+                                        .7, .7, 1), ncol=3))
+check13 <- get.post.est(sigma = matrix(c(1, .8 , .8, 
+                                        .8, 1, .8,
+                                        .8, .8, 1), ncol=3))
+check14 <- get.post.est(sigma = matrix(c(1, .9 , .9, 
+                                        .9, 1, .9,
+                                        .9, .9, 1), ncol=3))
+
+
+check15 <- get.post.est()
+
+check16 <- get.post.est(sigma = matrix(c(1, -.1 , .1, 
+                                        -.1, 1, .1,
+                                        .1, .1, 1), ncol=3))
+check17 <- get.post.est(sigma = matrix(c(1, -.2 , .2, 
+                                        -.2, 1, .2,
+                                        .2, .2, 1), ncol=3))
+check18 <- get.post.est(sigma = matrix(c(1, -.3 , .3, 
+                                        -.3, 1, .3,
+                                        .3, .3, 1), ncol=3))
+check19 <- get.post.est(sigma = matrix(c(1, -.4 , .4, 
+                                        -.4, 1, .4,
+                                        .4, .4, 1), ncol=3))
+check20 <- get.post.est(sigma = matrix(c(1, -.5 , .5, 
+                                        -.5, 1, .5,
+                                        .5, .5, 1), ncol=3))
+check21 <- get.post.est(sigma = matrix(c(1, -.6 , .6, 
+                                        -.6, 1, .6,
+                                        .6, .6, 1), ncol=3))
+check22 <- get.post.est(sigma = matrix(c(1, -.7 , .7, 
+                                        -.7, 1, .7,
+                                        .7, .7, 1), ncol=3))
+check23 <- get.post.est(sigma = matrix(c(1, -.8 , .8, 
+                                        -.8, 1, .8,
+                                        .8, .8, 1), ncol=3))
+check24 <- get.post.est(sigma = matrix(c(1, -.9 , .9, 
+                                        -.9, 1, .9,
+                                        .9, .9, 1), ncol=3))
+bind_rows(check1,
+          check2,
+          check3,
+          check4,
+          check5,
+          check6,
+          check7,
+          check8,
+          check9,
+          check10,
+          check11,
+          check12,
+          check13,
+          check14) %>% mutate(scenario = paste(sigma_12, sigma_13, sigma_23)) %>% 
+  ggplot(aes(x=esttheta)) + geom_histogram() + facet_wrap(~scenario, scales="free") + 
+  labs(title="Histograms of simulated disease burden scores", x="Disease Burden", caption="Facet labels indicate the correlations among endpoints")
+
+bind_rows(check15,
+          check16,
+          check17,
+          check18,
+          check19,
+          check20,
+          check21,
+          check22,
+          check23,
+          check24) %>% mutate(scenario = paste(sigma_12, sigma_13, sigma_23)) %>% 
+  ggplot(aes(x=esttheta)) + geom_histogram() + facet_wrap(~scenario, scales="free")+ 
+  labs(title="Histograms of simulated disease burden scores", x="Disease Burden", caption="Facet labels indicate the correlations among endpoints")
+hist(check1$esttheta, breaks=50)
+hist(check7$esttheta, breaks=50)
+hist(check12$esttheta, breaks=50)
+hist(check5$esttheta, breaks=50)
+hist(check6$esttheta, breaks=50)
+hist(check8$esttheta, breaks=50)
+hist(check9$esttheta, breaks=50)
+hist(check10$esttheta, breaks=50)
+hist(check4$esttheta, breaks=50)
+
+hist(check2$esttheta, breaks=50)
+hist(check3$esttheta, breaks=50)
+hist(check11$esttheta, breaks=50)
+
+
+
+
+check31 <- get.post.est()
+
+check32 <- get.post.est(sigma = matrix(c(1, .1 , 0, 
+                                        .1, 1, 0,
+                                        0, 0, 1), ncol=3))
+check33 <- get.post.est(sigma = matrix(c(1, .2 , 0, 
+                                        .2, 1, 0,
+                                        0, 0, 1), ncol=3))
+check34 <- get.post.est(sigma = matrix(c(1, .3 , 0, 
+                                        .3, 1, 0,
+                                        0, 0, 1), ncol=3))
+check35 <- get.post.est(sigma = matrix(c(1, .4 , 0, 
+                                        .4, 1, 0,
+                                        0, 0, 1), ncol=3))
+check36 <- get.post.est(sigma = matrix(c(1, .5 , 0, 
+                                        .5, 1, 0,
+                                        0, 0, 1), ncol=3))
+check37 <- get.post.est(sigma = matrix(c(1, .6 , 0, 
+                                        .6, 1, 0,
+                                        0, 0, 1), ncol=3))
+check38 <- get.post.est(sigma = matrix(c(1, .7 , 0, 
+                                        .7, 1, 0,
+                                        0, 0, 1), ncol=3))
+check39 <- get.post.est(sigma = matrix(c(1, .8 , 0, 
+                                        .8, 1, 0,
+                                        0, 0, 1), ncol=3))
+check40 <- get.post.est(sigma = matrix(c(1, .9 , 0, 
+                                        .9, 1, 0,
+                                        0, 0, 1), ncol=3))
+
+
+bind_rows(check31,
+          check32,
+          check33,
+          check34,
+          check35,
+          check36,
+          check37,
+          check38,
+          check39,
+          check40) %>% mutate(scenario = paste(sigma_12, sigma_13, sigma_23)) %>% 
+  ggplot(aes(x=esttheta)) + geom_histogram() + facet_wrap(~scenario, scales="free")+ 
+  labs(title="Histograms of simulated disease burden scores", x="Disease Burden", caption="Facet labels indicate the correlations among endpoints")
+
+
+
+
+
+
+
+```

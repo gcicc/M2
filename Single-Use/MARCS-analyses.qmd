@@ -1,0 +1,838 @@
+---
+title: "Method to Account for Multiple Clinical Markers"
+format: html
+editor: visual
+---
+
+## Load packages
+
+```{r message=FALSE, warning=FALSE}
+require(tidyverse)
+require(gt)
+require(broom)
+require(VCA)
+require(mcr)
+library(MPsychoR)
+#library(plyr)
+library(MASS)
+library(car)
+library(pracma)
+#library(plyr)
+library(spatstat)
+```
+
+# Step-wise acceptance criteria for the validation
+
+## Acceptance Criteria for Analytical Validation
+
+-   Accuracy: $Bias \leq 0.5$. Linear across range
+-   Precision: $MDD \leq 0.5$
+-   MLA non-inferior to human
+
+## Clincal/Biological Validation
+
+-   Single timepoint step
+    -   Abs diff of CE-VAS an dMARSH score $\leq$ 0.5
+    -   Overall $R^2$ between BVA and Vh:Cd $\geq$ 0.5
+    -   Overall $R^2$ between BVA and CDSD $\geq$ 0.5
+    -   Overall $R^2$ between BVA and Vh:Cd in top bin $\geq$ 0.8
+    -   MLA non-inferiror to human
+-   Change Monitoring Step
+    -   MDD $\geq$ treatment effect
+-   Response CoU
+    -   Proportion treatment effect captured $\geq$ 0.8
+
+## Clinical Utility
+
+-   Power by MARCS BVA $\geq$ other markers
+
+# 2.0 Analytical Validation
+
+-   Analysis set A
+    -   determined through exercise in section 3.3.1 YES?!
+    -   72 in total 24 from each strata
+
+## 2.1 Analysis Module: Bias and Linearity
+
+## DEMING REGRESSION
+
+-   data.in to be replaced with Analysis set A
+-   Repeat analysis with Set A, and subsetted versions to individual readers
+
+For Deming Regression we will include all data, regardless of timepoints. Repeat for
+
+-   Set A.1: Set A subsetted to Reader 1
+-   Set A.2: Set A subsetted to Reader 2
+-   Set A.3: Set A subsetted to Reader 3
+-   Set A.pool: Set A subsetted to Readers 1-3
+-   Set A.ML: Set A subsetted to ML reader
+
+```{r}
+# Deming regression
+source("~/R-Projects/celiac/code/functions/deming-regression.R")
+source("~/R-Projects/celiac/code/functions/deming-regression-report.R")
+source("~/R-Projects/celiac/code/functions/deming-bias-linearity-check1.R")
+source("~/R-Projects/celiac/code/functions/deming-plot.R")
+# Polynomial regression check
+source("~/R-Projects/celiac/code/functions/polynomial-regression.R")
+source("~/R-Projects/celiac/code/functions/polynomial-regression-lm-output.R")
+source("~/R-Projects/celiac/code/functions/polynomial-regression-linearity-check.R")
+# CI of readers vs. truth panel
+source("~/R-Projects/celiac/code/functions/get-truth-panel-CI.R")
+source("~/R-Projects/celiac/code/functions/report-truth-panel-CI.R")
+# Coverage probability
+source("~/R-Projects/celiac/code/functions/report-coverage-probability.R")
+source("~/R-Projects/celiac/code/functions/report-repeatability-coefficient.R")
+# VCA
+source("~/R-Projects/celiac/code/functions/VCA-run.R")
+source("~/R-Projects/celiac/code/functions/VCA-report.R")
+source("~/R-Projects/celiac/code/functions/VCA-CI-report.R")
+source("~/R-Projects/celiac/code/functions/VCA-total-analytic-variation.R")
+source("~/R-Projects/celiac/code/functions/VCA-plot.R")
+source("~/R-Projects/celiac/code/functions/VCA-scatterplot-subject-mean-vs-sd.R")
+source("~/R-Projects/celiac/code/functions/VCA-histogram-subject-means.R")
+source("~/R-Projects/celiac/code/functions/VCA-histogram-subject-sds.R")
+source("~/R-Projects/celiac/code/functions/get-MDD.R")
+source("~/R-Projects/celiac/code/functions/anchor.R")
+# Associations 
+source("~/R-Projects/celiac/code/functions/BVA-VhCD-correlation-check.R")
+source("~/R-Projects/celiac/code/functions/Obuchowski-diagnostic-test-accuracy.R")
+# IRT
+source("~/R-Projects/celiac/code/functions/Responsefunctions.R")
+source("~/R-Projects/celiac/code/functions/Difficultyfunctions.R")
+source("~/R-Projects/celiac/code/functions/ProgramsFixedResp.R")
+source("~/R-Projects/celiac/code/functions/ProgramsFixedAlphaResp.R")
+source("~/R-Projects/celiac/code/functions/IRT-models.R")
+source("~/R-Projects/celiac/code/functions/IRT-reports.R")
+
+```
+
+### Sample implementation
+
+```{r}
+# Data prep needed
+my.deming.fit <- deming.regression(
+  data.in = creatinine,
+  x = "serum.crea", mref.name = "Expert Panel",
+  y = "plasma.crea", mtest.name = "Human1"
+)
+```
+
+### Deming Regression report
+
+```{r}
+deming.regression.report(deming.fit = my.deming.fit)
+```
+
+### Bias and Linearity Check 1
+
+```{r}
+deming.bias.linearity.check1(deming.fit = my.deming.fit)
+```
+
+### Polynomial Trend linear model output
+
+-   Update so we have $X^2$ and $X^3$
+
+```{r}
+polynomial.regression.lm.output()
+```
+
+### Polynomial Trend linear model linearity check
+
+```{r}
+polynomial.regression.linearity.check()
+```
+
+Repeat for
+
+-   Reader 1
+-   Reader 2
+-   Reader 3
+-   Pooled Human
+-   ML Reader
+
+```{r}
+deming.plot(deming.fit = my.deming.fit)
+```
+
+### Confidence intervals for paired differences
+
+The two-sided 95% confidence interval will be reported for the mean of the paired differences between the measured scores and their corresponding true values based on the measurements of the “truth panel.”
+
+```{r}
+my.data <- data.frame(Expert.panel  = rep(rnorm(40, 0, 1), 3), 
+                      Human.ML = rnorm(120, 0, 1), 
+                      Reader = rep(1:3, each = 40))
+```
+
+```{r}
+report.truth.panel.CI(data.in = my.data)
+```
+
+### Report coverage probability
+
+```{r}
+report.coverage.probability()
+```
+
+## 2.2 Analysis Module: Repeatability and Reproducibility
+
+-   Analysis set B, C, and D
+    -   Set B: Each subject participating in the test-retest sub-study will undergo two transits of the video capsule within a period considered insignificant to the presentation of villous atrophy. Test/Retest: 40
+    -   Intra-reader: 15 with 2 reads per reader
+    -   Inter-reader: 12 read by by each reader
+
+```{r}
+# Dummy data
+set.seed(23)
+VCA.data <- data.frame(
+  mu = 50,
+  reader.effect = rep(rnorm(3, 0, 2.5), rep(80, 3)),
+  subject.effect = rep(rep(rnorm(40, 0, 2), each = 2), 3),
+  run.effect = rep(rnorm(2, 0, 1), 120),
+  residual = rnorm(240, 0, 1.5)
+) %>%
+  mutate(
+    y = mu + reader.effect + subject.effect + run.effect + residual,
+    reader = factor(rep(c("Reader1", "Reader2", "Reader3"), each = 80)),
+    subj = factor(rep(rep(1:40, each = 2), 3)),
+    run = factor(rep(1:2, 120))
+  )
+```
+
+```{r}
+my.VCA.fit <- run.VCA(data.in = VCA.data)
+```
+
+$$\sigma^2_{reproducibility} = \sigma^2_{repeatability} + \sigma^2_{between-factors}$$
+
+### Variance Components Model Report
+
+```{r}
+VCA.report(VCA.fit = my.VCA.fit)
+```
+
+### Variance Component Confidence Interval Report
+
+```{r}
+VCA.CI.report()
+```
+
+Total analytic variation sums variance components assocated with Rater, Rater:Subject Interaction and intra-rater random errors. $$V = \sigma^2_R + \sigma^2_SR + \sigma^2_\epsilon$$
+
+```{r}
+VCA.total.analytic.variation(VCA.fit = my.VCA.fit, VCA.data.in = VCA.data, alpha=.05)
+```
+
+### Variability plot. The Y-axis is the MARCS score, the X-axis represents design factors: subject, test-retest, rater, replicates.
+
+Install lines at $$\bar{d} \pm t_{(n-1),.025)}\hat\sigma_\epsilon(1 + 1/n)$$ per Obuchowski 2014 equation 6, so called limits of agreement
+
+```{r}
+VCA.plot()
+```
+
+### Scatter plot of variation versus mean. Y-axis is the SD of the MARCS score for each subject, X-axis is the Mean of the MARCS score for the corresponding subject.
+
+```{r}
+VCA.scatterplot.subject.mean.vs.sd(data.in=VCA.data)
+```
+
+### Histograms & summary statistics. The distribution of the SD and the Mean of the MARCS score per subject will be illustrated by histogram, summary statistics (mean, CI) will be calculated.
+
+```{r}
+VCA.histogram.subject.means(data.in = VCA.data)
+```
+
+```{r}
+VCA.histogram.subject.sds(data.in = VCA.data)
+```
+
+```{r}
+ VCA.data %>%
+   group_by(reader) %>%
+   summarize(
+     mean.MARCS = mean(y),
+     sd.MARCS = sd(y),
+     n = n()
+   ) %>%
+   mutate(
+     LCI.mean = mean.MARCS - 1.96 * sd.MARCS / sqrt(n),
+     UCI.mean = mean.MARCS + 1.96 * sd.MARCS / sqrt(n)
+   )
+```
+
+### 2.2.1 Minimum Detectable Difference (MDD) - PICK UP HERE
+
+MDD is determined as a pooled variance, including both test-retest and re-read conditions. These can simply be averaged per Dave R.
+
+```{r}
+# MDD is determined as a pooled variance, including both
+ # test-retest and
+ # re-read conditions.
+get.MDD <- function(data.in1 = TEST.Retest, data.in2 = REREAD) {
+  sd.1 <- sd(data.in1$MARCS, na.rm = TRUE)
+  sd.2 <- sd(data.in2$MARCS, na.rm = TRUE)
+  n1 <- sum(!is.na(data.in1$MARCS))
+  n2 <- sum(!is.na(data.in2$MARCS))
+  pooled.sd <- sqrt((sd.1^2 * (n1 - 1) + sd.2^2 * (n2 - 1)) / (n1 + n2 - 2))
+  return(data.frame(pooled.sd = pooled.sd, Acceptance.criteria.met = pooled.sd <= 0.5))
+}
+```
+
+# 3.0 Clinical/Biological Validation
+
+Acceptance Criteria for Clinical/Biological Validation
+
+-   Single timepoint step
+    -   $|CEVAS - Marsh scores| \leq 0.5$
+    -   $R^2 \geq 0.5$ for BVA and Vh:Cd - timepoint 0 and 24w
+    -   $R^2 \geq 0.5$ for BVA and CDSD - timepoints 0, 12, 24w
+    -   MLA non-inferiror to human
+-   Change monitoring
+    -   $MDD \geq treatment effect$
+    -   Proportion of treatment effect captured $\geq 0.8$
+
+```{r}
+require(readxl)
+CDSD_Histology_data <- read_excel("~/R-Projects/celiac/data/062/CDSD_Histology_data.xlsx")
+VHCD <- CDSD_Histology_data %>%
+  filter(`Parameter Category 1` == "ESOPHAGOGASTRODUODENOSCOPY", 
+         `Parameter Code` == "VHCD", 
+         `Analysis Visit` %in% c("Baseline", "Week 24")) %>%
+  dplyr::select("Subject Identifier for the Study", 
+         "Analysis Visit", 
+         "Parameter", 
+         "Parameter Code", 
+         "Analysis Value")
+
+ILE <- CDSD_Histology_data %>%
+  filter(`Parameter Category 1` == "ESOPHAGOGASTRODUODENOSCOPY", 
+         `Parameter Code` == "LYEPIENT", 
+         `Analysis Visit` %in% c("Baseline", "Week 24")) %>%
+  dplyr::select("Subject Identifier for the Study", 
+         "Analysis Visit", 
+         "Parameter", 
+         "Parameter Code", 
+         "Analysis Value")
+
+CDSD <- CDSD_Histology_data %>% filter(`Parameter` == "CDSD GI Score Weekly", `Analysis Visit` %in% c("Baseline", "Week 24")) %>%
+  dplyr::select("Subject Identifier for the Study", 
+         "Analysis Visit", 
+         "Parameter", 
+         "Parameter Code", 
+         "Analysis Value")
+
+names(VHCD) 
+VHCD <- VHCD %>% dplyr::rename(VHCD = `Analysis Value`) %>% dplyr::select(`Subject Identifier for the Study`, `Analysis Visit`, VHCD)
+ILE <- ILE %>% dplyr::rename(ILE = `Analysis Value`)  %>% dplyr::select(`Subject Identifier for the Study`, `Analysis Visit`, ILE)
+CDSD <- CDSD %>% dplyr::rename(CDSD = `Analysis Value`) %>% dplyr::select(`Subject Identifier for the Study`, `Analysis Visit`, CDSD)
+working.df <- VHCD %>% left_join(ILE) %>% left_join(CDSD)
+working.df$level <- sample(size = nrow(working.df), x=c("mild", "moderate", "severe"), replace=TRUE)
+
+set.seed(1234)
+working.severe <- working.df %>% filter(level=="severe") %>% sample_n(size = 40)
+working.severe.pool <- working.severe$`Subject Identifier for the Study`
+working.moderate <- working.df %>% filter(!(`Subject Identifier for the Study` %in% working.severe.pool), level=="moderate") %>% sample_n(size = 40)
+working.moderate.pool <- working.moderate$`Subject Identifier for the Study`
+
+
+working.mild <- working.df %>% filter(!(`Subject Identifier for the Study` %in% union(working.severe.pool, working.moderate.pool)), level=="mild") %>% sample_n(size = 40)
+ 
+
+intersect(working.severe.pool,working.moderate.pool)
+intersect(working.severe.pool,working.mild$`Subject Identifier for the Study`)
+intersect(working.moderate.pool,working.mild$`Subject Identifier for the Study`)
+```
+
+```{r}
+histology.correlation.data <- expand.grid(SUBJID = 1:40, Visit = c("Screen", "12w", "24w")) %>%
+  mutate(
+    BVA = rnorm(n(), 0, 1),
+    VhCD = rnorm(n(), 0, 1),
+    CDSD = rnorm(n(), 7, 7 / 3),
+    MarshO.scale = sample(x = c(0, 1, 2, 3), replace = T, size = n())
+  ) %>%
+  mutate(Agreement = case_when(
+    MarshO.scale > 2 & CDSD > 7 ~ "Good",
+    MarshO.scale <= 2 & CDSD <= 3 ~ "Good",
+    MarshO.scale > 2 & CDSD <= 3 ~ "Poor",
+    MarshO.scale <= 2 & CDSD > 7 ~ "Poor",
+    .default = "Moderate"
+  ))
+
+```
+
+```{r}
+# Here MarshO.scale is mapped from (0, 1, 2), 3a, 3b, 3c to 0, 1, 2, 3, resp.
+BVA.VhCD.correlation.check(data.in = histology.correlation.data)
+```
+
+## 3.1 Analysis Module: Grounding the Underlying Categoric CE-VAST Score
+
+```{r}
+for.anchoring <- data.frame(
+  CE-VAST = sample(c(0, 1, 2, 3), size = 80, replace = TRUE),
+  MARSH = sample(c("0", "1", "2", "3a", "3b", "3c"), size = 80, replace = TRUE)
+)
+
+anchor(data.in = for.anchoring) 
+```
+
+# 3.2 Analysis Module: Associations Relative to Accepted Clinical Endpoints
+
+This will be repeated on whole data + good agreement, poor agreement and Moderate agreement sets
+
+## Diagnosis Accuracy for Continuous-Scale Clinical Marker
+
+```{r}
+# Create a dummy dataset
+# GOLD = Vh:Cd (histology), CDSD score (symptomatology), IEL count and others
+# Exhaustive list needed
+cont.GS1 <- data.frame(SUBJID = 1:80, MARCS = rnorm(80, 0, 1), GOLD = rnorm(80, 0, 1))
+cont.GS2 <- data.frame(SUBJID = 1:80, MARCS = rnorm(80, 0, 1), GOLD = rnorm(80, 0, 1))
+ord.GS <- data.frame(SUBJID = 1:80, MARCS = rnorm(80, 0, 1), GOLD = sample(c("0", "1", "2", "3a", "3b", "3c"), size = 80, replace = TRUE))
+
+my.Obuchowski.hat1 <- Obuchowski.hat(data.in = ord.GS, gold = "GOLD", diag = "MARCS")
+my.Obuchowski.hat2 <- Obuchowski.hat(data.in = cont.GS1, gold = "GOLD", diag = "MARCS")
+# Implementation of equation 3
+get.diag.test.accuracy(Obuchowski.in = my.Obuchowski.hat1)
+get.diag.test.accuracy(Obuchowski.in = my.Obuchowski.hat2)
+```
+
+# 3.3 Analysis Module: Association with Longitudinal Clinical Markers
+
+# 3.3.1 Method to Account for Multiple Clinical Markers
+
+## Libraries
+
+## Read data
+
+```{r}
+dat <-read.table("physsums", header=TRUE,sep= " ")
+# We will have only two items
+my.data.in <- data.frame(t(dat)) %>% dplyr::select(phy1, phy2) %>% dplyr::mutate(SUBJID = 1:n())
+# I <- dim(my.data)[1] # Number of Subjects
+# P <- dim(my.data)[2] # Number of items = 2: a) Sum of symptomology and b) sum of histology
+```
+
+## Linking output to reference
+
+Tutz G, Jordan P. Latent trait item response models for continuous responses. Journal of Educational and Behavioral Statistics. 2023:10769986231184147.
+
+Table 1 Output for Normal response function, linear difficulty function under $\alpha_i = 1$: Log-likelihood.
+
+```{r}
+tictoc::tic() # 33.59 sec elapsed
+##--------------------------------
+# This reports log-lik of -563.084 and estimate of 1.493 for sigma_theta_p as in 'Latent trait item reponse models for continuous responses'
+# This is being reported under alpha_i == 1
+my.common.alpha <- common.alpha(data.in = my.data.in)
+tictoc::toc()
+```
+
+All models are fit using MML-procedure and Gauss-Hermite quadrature whereby a centered normal distribution with unknown variance $\sigma_\theta^2$ for the latent variable is specified. Here's the estimate of the standard deviation:
+
+```{r}
+report.common.alpha(common.alpha = my.common.alpha)
+
+```
+
+```{r}
+report.uncommon.alpha(uncommon.alpha = my.uncommon.alpha)
+```
+
+## Model Fit
+
+```{r}
+LRT(model1 = my.common.alpha, model2 = my.uncommon.alpha)
+```
+
+## Posterior person estimates
+
+As these are to be used to identify video we'll want to disregard patient repeats temporaility
+
+```{r}
+PosteriorEstimates <-function(grid=seq(-3,5,.1),
+                              data.in = my.data.in, 
+                              I=2, 
+                              indicator="C", 
+                              lin="lin",
+                              parmatrest=model2$parmatrix,
+                              stdest=model2$stdmixt
+                              ){ 
+  
+  ####computes centered posterior person parameters
+  ##### parmatrest is prameter matrix
+  
+  numgrid <- length(grid)
+  dens <- matrix(0,numgrid,1)
+  P<-dim(data.in)[1]
+  esttheta <- matrix(0,P,1)
+  dat <- t(data.in %>% dplyr::select(-SUBJID))
+  for (p  in 1:P){obs<- dat[,p]
+  for (l in 1:numgrid){
+    theta <- grid[l]
+    dens[l,1]<-prodfct(theta,datitem=obs,I=I,parmatr=parmatrest,slope=1,indicator=indicator, lin =lin)*dnorm(theta,0,stdest)
+  }
+  num<-  which.max(dens)
+  esttheta[p]<- grid[num]
+  }
+  #### centering
+  esttheta<-esttheta-mean(esttheta)
+  
+  return(data.in %>% cbind(esttheta))
+}
+```
+
+```{r}
+PosteriorEstimates() %>% ggplot(aes(x=esttheta)) + geom_density() + geom_rug()
+PosteriorEstimates() %>% ggplot(aes(x=esttheta)) + geom_histogram() + geom_rug()
+
+for.buckets <- PosteriorEstimates() %>% arrange(esttheta) %>% 
+  mutate(tertile = 
+           1*(esttheta <= quantile(esttheta, 1/3)) + 
+           2*(esttheta > quantile(esttheta, 1/3) & esttheta <= quantile(esttheta, 2/3)) + 
+           3*(esttheta > quantile(esttheta, 2/3)))
+
+for.buckets.shuffled <- for.buckets %>% group_by(tertile) %>% sample_n(size = n(), replace=FALSE)
+for.buckets.shuffled.1 <- for.buckets.shuffled %>% filter(tertile==1)
+for.buckets.shuffled.2 <- for.buckets.shuffled %>% filter(tertile==2)
+for.buckets.shuffled.3 <- for.buckets.shuffled %>% filter(tertile==3)
+
+
+```
+
+# 3.4 Analysis Module: Determination of the Strength of Surrogacy
+
+## Seemingly unrelated regression
+
+```{r}
+install.packages("nnet")
+install.packages("mgcv")
+install.packages("quantreg")
+install.packages("systemfit")
+install.packages("foreign")
+install.packages("car")
+install.packages("Rcpp")
+library(foreign)
+library(systemfit)
+
+hsb2 <- read.dta("https://stats.idre.ucla.edu/stat/stata/notes/hsb2.dta")
+View(hsb2)
+
+r1 <- read~female 
+r2 <- math~female 
+
+fit.OLS <- systemfit(list(readreg = r1, mathreg = r2), data=hsb2, method = "OLS")
+fit.SUR <- systemfit(list(readreg = r1, mathreg = r2), data=hsb2, method = "SUR")
+summary(fit.OLS)
+fit.OLS$coefficients
+fit.OLS$residCov
+summary(fit.SUR)
+fit.SUR$coefficients
+fit.SUR$residCov
+
+beta <- fit.SUR$coefficients[4]
+beta_S <- (beta - fit.SUR$residCov[1,2]/sqrt(fit.SUR$residCov[1,1]*fit.SUR$residCov[2,2])*fit.SUR$coefficients[2])
+PE <- (beta - beta_S)/beta
+RE <-fit.SUR$coefficients[4]/fit.SUR$coefficients[2]
+rho <- fit.SUR$residCov[1,2]/sqrt(fit.SUR$residCov[1,1]*fit.SUR$residCov[2,2])
+```
+
+We may be interested in comparing the effect of female on read, controlling for ses and socst, to the effect of female on math, controlling for ses and science. For this, we will use the linear.hypothesis command from the car package. To do this, we create a “restriction” on the model system. We will force the coefficient of female to be the same in both equations and then compare such a system fit to the one seen when the coefficients are not equal.
+
+```{r}
+library(car)
+restriction <- "readreg_femalefemale- mathreg_femalefemale"
+linearHypothesis(fitsur, restriction, test = "Chisq")
+```
+
+# 4.0 CLINICAL UTILITY AND USE
+
+## 4.1 Analysis Module: Documenting the Value of the Validated Biomarkers
+
+```{r}
+# Step 1: Identify overlapping range: 
+# Repeated for S (MARCS) and T (composited co-primary hist and symp per 3.3.1)
+# 25th percentile of the scores of untreated
+# 75th percentile of the scores of treated 
+
+# Assess the non-inferitority of the surrogate by comparing its corresponding proportion of patients in the 
+# non-overlapping range
+# Each patient contributes a pair of dichotomous responses (Y/N) which indicate if the reference and the surrogate
+# fall in their corresponding non-overlapping ranges
+
+my.data <- data.frame(S = rnorm(100, 0 ,1), T = rnorm(100, 0, 1), treated = sample(x = c(0,1), size = 100, replace = TRUE))
+for.table.treated <- my.data %>% filter(treated==1) %>% summarize(S.75 = quantile(probs = .75, S),
+                                                                  T.75 = quantile(probs = .75, T)) 
+for.table.untreated <- my.data %>% filter(treated==0) %>% summarize(S.25 = quantile(probs = .25, S),
+                                                                    T.25 = quantile(probs = .25, T)) 
+
+for.table <- my.data %>% 
+  mutate(S.25 = for.table.untreated$S.25,  # Untreated
+         S.75 = for.table.treated$S.75,  # Treated
+         T.25 = for.table.untreated$T.25,  # untreated
+         T.75 = for.table.treated$T.75) %>% #treated 
+  mutate(overlap.S = S > S.25 & S < S.75,
+         overlap.T = T > T.25 & T < T.75)
+
+my.table <- table(for.table$overlap.S, for.table$overlap.T)
+addmargins(my.table)
+addmargins(prop.table(my.table))
+
+
+prop.test()
+
+
+sample.size.NI(p0.expected=.20, p1.expected=.20, p1.tolerable=.05, sig.level=0.025, power=0.9, r=1, 
+  scale="RD", print.out=TRUE)  
+
+test.NI(n0=100, n1=100, e0=19, e1=20, NIm=.05, sig.level=0.025, scale="RD", print.out=TRUE)  
+```
+
+### Table 4.a: Classification table
+
+4.1.1 Power for comparing treatment effects Figure 4.a Power as a Function of Total Sample Size for Possible True Values of the Treatment Effect
+
+Acceptance Criteria for Clinical Utility
+
+-   Power by MARCS BVA $\geq$ other markers
+
+# ARCHIVE
+
+```{r}
+# Implementation of equation 1, 2
+# "GOLD" should be replaced with continuous gold standard measures.
+
+table(ord.GS$GOLD)
+
+get.theta.hat.ord <- function(data.in = ord.GS, gold = "GOLD", diag = "MARCS") {
+  # theta_ts - in all we'll have 36
+  build <- expand_grid(i = 1:6, j = 1:6)
+  denom <- c()
+  for (i in 1:6) {
+    for (j in 1:6) {
+      denom <- c(denom, ifelse(j > i, table(ord.GS$GOLD)[i] * table(ord.GS$GOLD)[j], 0))
+    }
+  }
+  denom <- sum(denom)
+  # For each row of build subset to those with GOLD Standard having these
+  holdit <- bind_rows(
+    apply(matrix(1:nrow(build)), 1, function(x) {
+      # Get Subject IDs where Gold standard equals either i or j
+      SUBJIDs <- ord.GS %>%
+        filter(GOLD == build$i[x] | GOLD == build$j[x]) %>%
+        pull(SUBJID)
+      for.merge.1 <- ord.GS %>%
+        filter(GOLD == build$i[x] | GOLD == build$j[x]) %>%
+        rename(SUBJID1 = SUBJID, MARCS1 = MARCS)
+      for.merge.2 <- ord.GS %>%
+        filter(GOLD == build$i[x] | GOLD == build$j[x]) %>%
+        rename(SUBJID2 = SUBJID, MARCS2 = MARCS)
+      Phi <- expand.grid(SUBJID1 = SUBJIDs, SUBJID2 = SUBJIDs) %>%
+        left_join(for.merge.1) %>%
+        left_join(for.merge.2) %>%
+        mutate(Phi = case_when(
+          MARCS1 > MARCS2 ~ 1,
+          MARCS1 == MARCS2 ~ 0.5,
+          .default = 0
+        )) %>%
+        summarize(Sum.Phi = sum(Phi))
+      data.frame(t = build$i[x], s = build$j[x], Phi = Phi, n_t = table(ord.GS$GOLD)[build$i[x]], n_s = table(ord.GS$GOLD)[build$j[x]])
+    })
+  ) %>%
+    mutate(theta_hat = Sum.Phi * 1 / (n_t * n_s)) %>%
+    mutate(
+      Loss = abs(t - s) / 5,
+      weight = n_t * n_s / denom
+    )
+
+  holdit %>%
+    filter(s > t) %>%
+    mutate(summand = weight * Loss * (1 - theta_hat)) %>%
+    summarize(theta_dprime = 1 - sum(summand))
+}
+
+Structural <- function()
+
+
+```
+
+## Diagnosis Accuracy for Ordinal-Scale Gold Standard
+
+Still need to contend with variance and covariance
+
+```{r}
+# Alternative estimator
+# Question: do we use the original MARSH or the collapsed MARSH?
+# Gold standard outcomes take values 0, 1, 2, 3a, 3b, 3c
+
+
+ord.GS <- data.frame(SUBJID = 1:80, MARCS = rnorm(80,0,1), GOLD = sample(c("0", "1", "2", "3a","3b", "3c"), size=80, replace=TRUE))
+ord.GS <- ord.GS %>% mutate(GOLD.ord = as.numeric(as.factor(GOLD))) %>% rename(GOLD.org = GOLD, GOLD = GOLD.ord)
+my.theta.hat <- get.theta.hat(data.in = ord.GS)
+
+```
+
+```{r}
+# Estimator of diagnostic test accuracy
+data.in <- ord.GS
+
+data.in$GOLD <- factor(data.in$GOLD)
+data.in$GOLD.ord <- as.numeric(data.in$GOLD)
+
+phi <- c()
+for (i in 1:80) {
+  for (j in 1:80) {
+    # 1 if GOLD_i > GOLD_j AND MARCS_i > MARCS_j
+    # 0.5 if GOLD_i == GOLD_j OR MARCS_i == MARCS_j
+    # 0 otherwise
+    temp <- ifelse(data.in$GOLD.ord[i] > data.in$GOLD.ord[j] & data.in$MARCS[i] > data.in$MARCS[j], 1,
+      ifelse(data.in$GOLD.ord[i] == data.in$GOLD.ord[j] | data.in$MARCS[i] == data.in$MARCS[j], .5, 0)
+    )
+    phi <- c(phi, temp)
+  }
+}
+
+build.it.a <- expand.grid(SUBJID1 = 1:80, SUBJID2 = 1:80)
+build.it.b <- data.frame(SUBJID1 = 1:80, GS1 = data.in$GOLD.ord)
+build.it.c <- data.frame(SUBJID2 = 1:80, GS2 = data.in$GOLD.ord)
+build <- left_join(left_join(build.it.a, build.it.b), build.it.c)
+View(build)
+# 36 rows result
+
+# This is an implementation of equation 1
+step1 <- build %>%
+  mutate(summand = case_when(
+    GS1 > GS2 ~ 1,
+    GS1 == GS2 ~ 0.5,
+    GS1 < GS2 ~ 0
+  )) %>%
+  group_by(GS1, GS2) %>%
+  mutate(summand = ifelse(SUBJID1 == SUBJID2, 0, summand)) %>%
+  summarize(theta.hat = sum(summand) * 1 / (n() * (n() - 1))) %>%
+  # Adding in the losses
+  mutate(Loss = case_when(
+    GS1 == GS2 ~ 0,
+    abs(GS1 - GS2) == 1 ~ .2,
+    abs(GS1 - GS2) == 2 ~ .4,
+    abs(GS1 - GS2) == 3 ~ .6,
+    abs(GS1 - GS2) == 4 ~ .8,
+    abs(GS1 - GS2) == 5 ~ 1,
+  ))
+
+
+# Bringing in n_t and n_s
+step2 <- step1 %>%
+  left_join(
+    build %>%
+      mutate(summand = case_when(
+        GS1 > GS2 ~ 1,
+        GS1 == GS2 ~ 0.5,
+        GS1 < GS2 ~ 0
+      )) %>%
+      group_by(GS1) %>%
+      tally(name = "n_t")
+  ) %>%
+  left_join(
+    build %>%
+      mutate(summand = case_when(
+        GS1 > GS2 ~ 1,
+        GS1 == GS2 ~ 0.5,
+        GS1 < GS2 ~ 0
+      )) %>%
+      group_by(GS2) %>%
+      tally(name = "n_s")
+  ) %>%
+  ungroup()
+
+# This is the denominator of equation 7
+weight.scale <- step2 %>%
+  filter(GS2 > GS1) %>%
+  mutate(product = n_t * n_s) %>%
+  summarize(denominator = sum(product)) %>%
+  pull(denominator)
+
+# Add the weights
+step3 <- step2 %>% mutate(weight = n_t * n_s / weight.scale)
+# Final step to compute theta.prime of equation 6
+step4 <- step3 %>% summarize(theta.prime = 1 - sum(weight * Loss * (1 - theta.hat)))
+
+```
+
+The variance of θ' is the sum of the estimated variances and covariances of the θ_ts’s weighted appropriately. See Obuchowski (1) for more details.
+
+```{r}
+# 225 summands
+base <- expand.grid(t = 1:6, s = 1:6, i = 1:6, l = 1:6) %>% filter(l > i, s > t)
+# 15
+type1 <- base %>% filter(t == i & s == l)
+# 40
+type2 <- base %>% filter(t == i & s != l)
+# 40
+type3 <- base %>% filter(t != i & s == l)
+# 130
+type4 <- base %>% filter(t != i & s != l)
+```
+
+## Plots
+
+```{r}
+
+parmatrest <- model1$parmatrix ###
+alphas<-model1$alpha
+data.in = t(my.data.in)
+
+y <- seq(4,7, length.out=100)
+
+#### with item slope, parameterization is alpha*theta -delta_oi+delta*a(y)
+
+
+prob <- 0*y  ### only dummy
+delta<-0*y  ## dummy
+require(tidyverse)
+theta <- 0
+for.plot2 <- bind_rows(
+apply(matrix(1:I), MARGIN = 1, function(x){
+  prob <- rep(NA,length(y))
+  delta <- rep(NA, length(y))
+  for (l in 1:length(y)){
+    # respfctd is dnorm
+    # 
+    prob[l]<- respfctd(alphas[x]*theta - diffunct(parmatrest[x,1],parmatrest[x,2],y[l]))*
+    derdiffunct(parmatrest[x,1],parmatrest[x,2],y[l])
+  delta[l]<-diffunct(parmatrest[x,1],parmatrest[,2],y[l])
+  }  
+  data.frame(cbind(prob, delta)) %>% mutate(x.axis = y, curve = x)
+  })) 
+
+for.plot2 %>% ggplot(aes(x=x.axis, y=prob, color=factor(curve)))+geom_line() + xlim(4, 7) + 
+  labs(x="y", title = "Linear Difficulty function, theta = 0", subtitle="Top left graph of figure 1, page 3")
+
+```
+
+```{r}
+prob <- 0*y  ### only dummy
+delta<-0*y  ## dummy
+require(tidyverse)
+theta <- 3.5
+for.plot2.1 <- bind_rows(
+  apply(matrix(1:I), MARGIN = 1, function(x){
+    prob <- rep(NA,length(y))
+    delta <- rep(NA, length(y))
+    for (l in 1:length(y)){
+      # respfctd is dnorm
+      prob[l]<- respfctd(alphas[x]*theta - diffunct(parmatrest[x,1],parmatrest[x,2],y[l]))*
+        derdiffunct(parmatrest[x,1],parmatrest[x,2],y[l])
+      delta[l]<-diffunct(parmatrest[x,1],parmatrest[,2],y[l])
+    }  
+    data.frame(cbind(prob, delta)) %>% mutate(x.axis = y, curve = x)
+  })) 
+
+for.plot2.1 %>% ggplot(aes(x=x.axis, y=prob, color=factor(curve)))+geom_line() + xlim(4, 7) + 
+  labs(x="y", title = "Linear Difficulty function, theta = 3.5", subtitle="Top right graph of figure 1, page 3")
+
+
+```

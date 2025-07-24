@@ -1,0 +1,71 @@
+---
+title: "Agreement with Gastroenterologist Scoring by VCE"
+format: pdf
+toc: true
+number-sections: true
+params:
+  study: "a study"
+  repo_clone: "directory where the clone is"
+  input_dir: "directory for the input"
+  output_dir: "directory for the output"
+execute: 
+  echo: false
+  message: false
+  warning: false
+  tbl-cap-location: top
+editor: visual
+---
+
+```{r packages-and-source}
+study <- params$study
+repo_clone <- params$repo_clone
+input_dir <- params$input_dir
+output_dir <- params$output_dir 
+source(paste0(repo_clone,"/Shared-Content/preamble.R"))
+table_path <- path(output_dir,"tables")
+dir.create(table_path)
+figure_path <- path(output_dir,"figures")
+dir.create(figure_path)
+```
+
+## Analysis Inputs: Prepared data following ETL.
+
+## Note that histology and symptoms are not needed for this analysis.
+
+```{r ETL}
+if (study=="Milan") {
+  demog_df <- demog_milan_etl()
+  vce_df <- vce_milan_etl()
+} else if (study=="Phase0") {
+  demog_df <- demog_phase0_etl()
+  vce_df <- vce_phase0_etl()
+} else if (study=="TAK-062-2001") {
+  demog_df <- demog_062_2001_etl()
+  vce_df <- vce_062_2001_etl()
+} else if (study=="Mock-Study") {
+  demog_df <- demog_mock_etl()
+  vce_df <- vce_mock_etl()
+} else {
+  print("Logic error: unsupported study")
+}
+```
+
+::: callout-note
+-   Inputs discovered (with a list of the file names with full qualification, how many rows were read, how many columns)
+-   Post-join data processed (list of rows and columns post-join)
+-   Descriptive statistics of the post-join data (see note on demographics file below)
+:::
+
+### Andy - Positions appear to have more decimal places in the ML scored data set compared to reader. Joining based on minimum distance.
+
+We assess the agreement between expert gastroenterologists and the ML algorithm to assess per-frame disease severity on the CE-VAST scale. We will compare frames evaluated by experts with the corresponding frames from the ML algorithm. Note that while frame-level agreement with expert gastroenterologists on a frame level is informative, the bias and linearity of the biomarker at the region level are definitive concerning the actual BVA biomarker.
+
+### Milan has Marsh-O, but not Vh:Cd
+
+### No clinical data with Phase0
+
+## Analysis to create:
+
+Clustered analysis for kappa coefficent
+
+We use weighted Cohen's kappa coefficient (κ) as the statistic to estimate the agreement, where the weights are assigned to account for the diverging difference between ML and the human physician. Kappa coefficients computed for each phycisian vs. ML.

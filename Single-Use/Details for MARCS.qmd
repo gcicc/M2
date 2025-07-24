@@ -1,0 +1,424 @@
+---
+title: "Untitled"
+format: html
+editor: visual
+---
+
+
+
+# Detailed Statistical Analysis Methods
+
+-   All analyses will be conducted using either R (4.2.2 or above) or SAS (version 9.4).
+-   All confidence intervals will be determined as 2-sided at 95% confidence level. Unless otherwise stated, the significance level for statistical hypothesis tests will be controlled at α = 0.05. Two-sided test will be used for test of equality, one-sided test will be used for non-inferiority test.
+-   Means and medians will be presented to 1 more decimal place than the recorded data. The standard deviations (SDs) will be presented to 2 more decimal places than the recorded data. Confidence intervals about a parameter estimate will be presented using the same number of decimal places as the parameter estimate.
+-   The validation of analytical validity, clinical validity, and clinical utility will be tested in sequential order.
+
+
+-   For clarity, the MARCS software generates multiple values (12 individual numbers): BVA, maximum, and mean for each of the three tertiles (the typical clinically used unit of assessment for capsule studies) and for the entire small bowel. 
+
+## Analytical Validity: Bias and Linearity
+
+The bias and linearity analysis will be performed using Deming regression.
+
+-   The acceptance criteria are that (i) the intercept of the model satisfies \|intercept\| \< 0.5, (ii) the slope of the model falls in interval \[0.8,1.25\].
+
+Let $(x_i, y_i)$ denote the paired measurements of subject $i$, where $x_i$ represents the result by the expert panel and $y_i$ represents the result from rater (human or ML) and let $\epsilon_i$ and $\delta_i$ denote the measurement error associated with each measurement.
+
+$$x_i = X_i + \epsilon_i$$ $$y_i = Y_i + \delta_i$$
+
+The Deming regression model is given as
+
+$$\hat{Y}_i = \beta_0 + \beta_1\hat{X}_i$$
+
+$\hat{X}_i$ and $\hat{Y}_i$ are the estimates of the expected values of $X_i$ and $Y_i$ respectively, be each of the measurement methods.
+
+OUTPUT: Point estimates, along with 95% CI for the intercept and slope will be provided
+
+```{r}
+# Based on 72
+require(mcr)
+library("mcr")
+data(creatinine,package="mcr")
+x <- creatinine$serum.crea
+y <- creatinine$plasma.crea
+# Deming regression fit.
+# The confidence intercals for regression coefficients
+# are calculated with analytical method
+model1<- mcreg(x,y,error.ratio=1,method.reg="Deming", method.ci="analytical",
+               mref.name = "serum.crea", mtest.name = "plasma.crea", na.rm=TRUE)
+
+printSummary(model1)
+getCoefficients(model1)
+plot(model1)
+```
+
+OUTPUT: The data and analysis will be visualized by overlaying the Deming regression line over the scatter plot with the comparative measurement procedure (expert panel result) plotted on the X-axis and the candidate measurement procedure (human reader, machine learning algorithm) on the Y-axis.
+
+```{r}
+sum(!is.na(x-y))
+
+
+```
+
+OUTPUT: In addition, the two-sided 95% confidence interval will be reported for the mean of the paired differences between the measured scores and their corresponding true values based on the measurements of the “truth panel.” Let $Y_i$ and $X_i$ be the measured score and the true value, respectively, of the $i^{th}$ (i = 1, ..., n ) assessed subject. The paired differences are $Y_i - X_i$ , and let $\mu, \sigma$ denote the mean and SD of $Y_i - X_i$ . The 95% confidence interval is $(\mu \pm t_{n-1, .025} \sigma/\sqrt{n})$
+
+where $t_{n-1, 0.025}$ is the critical value of the t distribution with n-1 degrees of freedom.
+
+```{r}
+LCI = mean(x - y, na.rm=TRUE) - sd(x-y, na.rm=T)/sqrt(sum(!is.na(x-y)))*qt(p = .975, df = sum(!is.na(x-y)))
+UCI = mean(x - y, na.rm=TRUE) + sd(x-y, na.rm=T)/sqrt(sum(!is.na(x-y)))*qt(p = .975, df = sum(!is.na(x-y)))
+```
+
+OUTPUT: Potential non-linear trend will be evaluated by polynomial models specified below. The goal of the non-linear model is (i) to appropriately capture the relationship between the two measurement results, (ii) more importantly to assess the trend and magnitude of bias over the measurement range. It should be note that statistical significance is different from clinical significance. A statistically significant non-linear trend may not necessarily translate to a clinical/practical concern. As long as the deviation from linear trend is \<15%, the linearity is assumed satisfied...
+
+The polynomial model to evaluate the non-linear trend is:
+
+Y=a+bX+c X 2 +d X 3
+
+If the coefficients for the 2nd and the 3rd polynomials are not significant, then linearity is claimed; if either (or both) of the 2nd and the 3rd polynomials is significant, the magnitude of the deviation will be evaluated as stated in (ii) above. Linearity is claimed if the deviation is \<15%, otherwise linearity can not be claimed.
+
+```{r}
+x2 <- x^2
+x3 <- x^3
+cubic.fit <- lm(y ~ x + x2 + x3)
+cubic.fit
+summary(cubic.fit)
+```
+
+## Analytical Validity: Repeatability and Reproducibility
+
+R&R study includes all the variance components. The variability for Test-retest, inter-rater, intra-rater will be estimated from one variance component analysis model. All the 3 estimates will be generated from one analysis. The model is given below
+
+$$y_{ijkl} = \mu + s_i + r_j + (sr)_{ij} + t_l + \epsilon_{ijkl}$$
+
+i = 1, ..., n; j = 1, ..., t; k = 1, ..., m; l = 1, 2.
+
+where $\mu$ is the mean rating; $s_i \sim N(0, \sigma_S^2)$ is the subject random effect, $r_j \sim N(0, \sigma_R^2)$ is the rater random effect; $(sr)_{ij} \sim N(0, \sigma_{SR}^2)$ represents the rater and subject interaction, which reflects the degree to which the $j^{th}$ rater departs from his/her usual rating tendency when confronted by the $i^{th}$ subject; $t_l$ is the test-retest effect $t_l \sim N(0, σ_T^2)$, and $\epsilon_{ijk} \sim N(0, \sigma_\epsilon^2)$ is the intra-rater random errors.
+
+The results of the analysis will be displayed in the table format provided below
+
+```{r}
+# Based on 40
+require(VCA)
+set.seed(23)
+dat.MS2 <- data.frame(  y=50 +
+                        # 3 random effects for sites
+                        rep(rnorm(3,0,2.5), rep(30, 3)) +
+                        # 15 random effects for days
+                        rep(rnorm(15,0, 2), rep(6, 15)) +
+                        # 30 random effects for runs
+                        rep(rnorm(30,0, 1), rep(3, 30)) +
+                        # residual error (repeatability)
+                        rnorm(90,0,1.5),
+                        site = gl(3, 30, labels=paste0("Site_", 1:3)),
+                        day = gl(5, 6, 90),
+                        run =gl(2, 3, 90)
+                    )
+
+```
+
+```{r}
+fit.MS2 <- fitVCA(y~(site+day)/run, dat.MS2)
+
+print(fit.MS2, digits=4)
+```
+
+
+
+Table 3. Table Shell for Variance Components Analysis
+
+|          | Intra-rater Variability $\sigma_\epsilon$ | Inter Rater $\sigma_R$  | Rater-Subject Interaction $\sigma_{SR}$ | Test-Rest $\sigma_T$ |
+|-----------|----------------|----------------|----------------|----------------|
+| $\sigma$ |                                           |                         |                                         |                      |
+
+The variance component analysis will be performed using R package VCA (https://cran.r-project.org/web/packages/VCA/index.html). Estimates of variance components are based REML method, the variance and confidence interval are based on Giesbrecht & Burns (1985).
+
+In addition to the variance components analysis, the following graphics will be used to assess the reproducibility of the biomarker.
+
+```{r}
+fit.MS2 <- fitVCA(y~(site+day)/run, dat.MS2, method = "REML")
+fit.MS2
+```
+
+Variability plot. The Y-axis is the MARCS score, the X-axis represents design factors: subject, test-retest, rater, replicates.
+
+```{r}
+varPlot(y~(site+day)/run, dat.MS2)
+```
+
+Scatter plot of variation versus mean. Y-axis is the SD of the MARCS score for each subject, X-axis is the Mean of the MARCS score for the corresponding subject.
+
+```{r}
+dat.MS2 %>% group_by(day) %>% 
+  mutate(mean.y = mean(y),
+         sd.y = sd(y)) %>%
+  ggplot(aes(x=mean.y, y= sd.y)) + geom_point()
+```
+
+Histograms & summary statistics. The distribution of the SD and the Mean of the MARCS score per subject will be illustrated by histogram, summary statistics (mean, CI) will be calculated.
+
+```{r}
+dat.MS2 %>% group_by(day) %>% 
+  mutate(mean.y = mean(y),
+         sd.y = sd(y)) %>%
+  ggplot(aes(x=mean.y)) + geom_histogram()
+```
+
+```{r}
+dat.MS2 %>% group_by(day) %>% 
+  mutate(mean.y = mean(y),
+         sd.y = sd(y)) %>%
+  ggplot(aes(x=sd.y)) + geom_histogram()
+```
+
+Missing Repeated Measurements Missing retest measurements may be due to technical issues with the VCE, which make the video of Tertile 1 unevaluable. Missingness will likely be missing at random (MAR) and will be imputed using MMRM or multiple imputation.
+
+OUTPUT: Minimum Detectable Difference (MDD) MDD is determined as a pooled variance, including both test-retest and re-read conditions. Whereas test-retest is generally more a function of acquisition differences, yet, different reading methods may be either more or less sensitive to those differences and, as a result, is estimated for both human and MLA readers.
+
+```{r}
+# Based on 40 Test/Re-test (3hr + ML) + 15 read/re-read
+```
+
+## Analytical Validity: Comparability of the Machine Learning vs. Human reader
+
+Analytical Validity: Comparability of the Machine Learning vs. Human reader The steps for establishing whether the performance of the MLA is not inferior to the average trained human reader involve first the selection of a representative human reader (HR) (selected as the one that performs at an average level) and then the testing for improvement on two performance characteristics of the MLA over the HR: bias (agreement with the true value) and the achieved MDD. The null and alternative hypotheses describe the one-sided testing for superiority of the MLA:
+
+$$H_0: \theta ≥ 0 \space vs. H_1: \theta < 0$$
+
+where $\theta$ is the parameter for the difference in performance characteristics, e.g., bias and MDD, respectively, between the two methods.
+
+Selection of human reader (HR)
+
+The two-way random effects ANOVA model can be used to analyze the repeated MARCS scores as described to determine intra-reader repeatability. Since the readers are of interest individually, we compute separate estimates of intra-reader reliability coefficients for each reader by partitioning the residual error $\sigma_\epsilon^2$ into three components representing the within-reader variability for each reader (Eliasziw et al. 1994) and then constructing the coefficients in the usual manner:
+
+$$\hat\rho_j = \frac{\hat\sigma_S^2 + \hat\sigma_R^2 + \hat\sigma_{RS}^2}{\hat\sigma_S^2 + \hat\sigma_R^2 + \hat\sigma_{RS}^2+\sigma_{\epsilon,j}^2}$$
+
+A representative human reader (HR) is regarded as the one that has the median intra-reader reliability coefficient across all three readers.
+
+
+```{r}
+holdit <- dat.MS2 %>% 
+  mutate(grand.mean = mean(y)) %>%
+  group_by(site) %>%
+  mutate(site.mean = mean(y)) %>%
+  group_by(site, day) %>%
+  mutate(day.mean = mean(y)) %>%
+  group_by(day, site, run) %>%
+  mutate(day.site.mean = mean(y))
+
+# SST
+SST <- holdit %>% ungroup() %>% summarize(SST = sum((y-grand.mean)*(y-grand.mean)))
+# SS-Site
+SSSITE <- holdit  %>% ungroup() %>% summarize(SST = sum((grand.mean-site.mean)*(grand.mean-site.mean)))
+# SS-day within site
+SSDAY.SITE <- holdit %>% ungroup() %>% summarize(SST = sum((day.mean-site.mean)*(day.mean-site.mean)))
+## SS-run within day-within site
+SSRUN.DAYSITE <- holdit %>% ungroup() %>% summarize(SST = sum((day.mean-day.site.mean)*(day.mean-day.site.mean)))
+
+
+holdit %>% ungroup() %>% summarize(SST = sum((y- day.site.mean)*(y-day.site.mean)))
+holdit %>% group_by(site) %>% summarize(SST = sum((y- day.site.mean)*(y-day.site.mean)))
+```
+
+
+Comparison of MLA’s and human reader’s bias (described as two “methods” below)
+
+To investigate the biases of the MLA and the HR methods, we consider the MARCS scores of each method at the testing occasion (i.e., without replications) as compared with the true values assigned by the expert panel. Denoting by $Y_{ij}$ and $X_i$ the scores and the true values, respectively, of the $i^{th}$ patient by the $j^{th}$ method, i = 1, ..., n; j = MLA, HR we estimate the individual biases of each patient i by $D_{ij} = Y_{ij} - X_i$ . Each method’s estimated bias is the average of the individual biases for the specific method. Comparing the two methods’ bias is performed via generalized estimating equations (GEEs) to account for the correlation among the scores obtained by different methods on the same patient. This can be accomplished using, for example, the SAS procedure GENMOD with the observed individual bias $D_{ij} as the response variable, an identity link, and a binary variable with levels corresponding to the two methods MLA and HR as the independent explanatory variable. The independent working correlation structure is used in the generalized estimating equations. The GEE approach adjusts the p-values of the hypothesis testing of the methods’ contribution to the overall population bias for the correlations induced by the fact that both methods used the same set of patients.
+
+```{r}
+require(gee)
+data(warpbreaks)
+summary(gee(breaks ~ tension, id=wool, data=warpbreaks, corstr="independence"))
+```
+
+Comparison of MLA’s and human reader’s MDD
+
+The MDD of a method is defined as the least significant difference between two repeated measurements on the same patient, being the pooled variance from test-retest and read-reread repeatability conditions. Let $Y_ijk$ be the measurement of the $i^{th}$ patient by the $j^{th}$ method at the $k^{th}$ replication, i = 1, ..., n; j = MLA, HR; k = 1, 2. We compute the MDD of a specific method j as $MDD_j = 1.96StDev(Y_{ijk} - Y_{ijk'}) = 1.29\sqrt{2Var(Y_{ijk})}$, where the variance $Var(Y_{ijk})$ can be estimated as $$\Sigma_i\Sigma_k(Y_{ijk} - \bar{Y}_{.j.}/(n(k-1))$$. Hence, testing the equality of the MDDs of the MLA and HR methods is equivalent to testing the equality of the mean within-subject variances between the two methods. The comparison can be performed via generalized estimating equations where the response variable is the observed individual (i.e., for each patient) within-subject variabilities $Z_{ij} = \Sigma_k (Y_{ijk}  - \bar{Y}_{ij.})^2$ and the independent variable is the Method. Again, the identity link and independent working correlation structure is used in the GEE procedure. The test of equality of the precision of the two methods as measured by the within-subject variances accounts for the correlation among multiple measurements made on the same patient by different methods.
+
+```{r}
+Vest <- dat.MS2 %>% group_by(site) %>% 
+  mutate(site.mean=mean(y)) %>%
+  ungroup() %>%
+  mutate(SS = (y-site.mean)^2) %>%
+  summarize(Var = sum(SS)/(5*(2-1)))
+
+MDD <- 1.29*sqrt(2*Vest)
+
+
+dat.MS2 %>% group_by(site,day, run) %>% 
+  mutate(run.means = mean(y),
+         Z = (y - run.means)^2/(2-1))
+```
+
+Clinical Validity: Association with Cross-sectional Clinical Endpoints To establish clinical/biological validity in the Diagnostic biomarker CoU we do two levels of analysis: 1) “anchor” the biomarker against the Marsh-Oberhuber score, and 2) document associations with clinical endpoints directly as well as to indirectly provide a base for the Monitoring and Response biomarker contexts, where we extend the association analysis for time-series data identify correlations of each of the two alternative clinical endpoints (histology and symptomatology) with MARCS. For symptomatology we use CDSD, add for histologic score comparisons are performed for the proximal small bowel region of interest to coincide with where the biopsy is taken.
+
+Grounding the Underlying Categoric CE-VAST Score We compare the categorical CE-VAST score, which corresponds to no, mild, moderate and severe villous atrophy, to Marsh Oberhuber histologic scores of 0, 1 or 2 (corresponding to CE-VAST of 0) and Marsh Oberhuber 3a (mild villous atrophy), 3b (marked villous atrophy) and 3c (complete villous atrophy). We will compare the mean CE-VAST score read in the first 5% of the bowel for this analysis because the first 5% of the bowel encompasses the area in which biopsies are taken.
+
+Note that the “grounding” to Marsh-Oberhuber is understood differently than the association analyses of Vh:Cd or IEL count described in the following sub-section. Specifically, using the smoothed MARCS curve is not desired here, but rather, to use the more primitive underlying CE-VAST frames scores.
+
+```{r}
+data(aSAH)
+my.data <- data.frame(cases = c(rep(0, 5), rep(1,5), rep(2, 5), rep(3, 5), sample(0:3, 5, replace=TRUE)),
+                      controls = c(rep(0, 5), rep(1,5), rep(2, 5), rep(3, 5), sample(0:3, 5, replace=TRUE)))
+
+roc(controls = my.data$controls, cases = my.data$cases)
+my.data %>% mutate(m1 = cases == )
+
+
+```
+
+
+
+Associations Relative to Accepted Clinical Endpoints MARCS measurands calculated from the smoothed MARCS curve will be tabulated by visit and correlated with the respective clinical endpoints (listed above) using the weighted versions of Spearman and Pearson correlations as appropriate. Spearman correlations are a measure of monotonicity and may be calculated for either continuous or ordinal data. Pearson correlation measures the degree of agreement to a linear relationship between two continuous variables.
+
+As noted elsewhere, these associations are neither expected to be high nor would it even be considered ideal were they to be, as the value of MARCS lies in its ability to probe deeper into villous atrophy in a manner that neither of these clinical endpoints does. However, it is informative to establish relationships given that they are accepted and to identify the relationships among them. To accomplish this, we utilize a weighting approach that takes into account for the degree to which the two alternative clinical endpoints agree together, insofar as guiding weighting for correlation with MARCS.
+
+Specifics for Histology
+
+Raw histology variables include Vh:Cd and IEL count. The aggregated histology endpoint denoted T1 is the average of Vh:Cd and IEL count per patient per time point?
+
+Specifics for Symptomatology
+
+Individual symptomatology variables include most bothersome symptom, diarrhea severity, diarrhea frequency, and PGIS. The aggregated symptomatology endpoint denoted T2 is the CDSD GI symptom severity score.
+
+Statistical Method for Clinical Validation Receiver operating characteristic (ROC) analysis has been the standard method for characterizing a diagnostic test’s accuracy and for quantifying a standalone diagnostic test or comparing accuracies of competing diagnostic tests. In traditional ROC analysis, there exists a gold or reference standard, independent of the diagnostic test(s), which provides a binary result as to the presence or absence of disease. Patients undergo both the clinical marker procedure and the diagnostic test(s). The diagnostic test results are then compared with the results of the binary-scale clinical marker to estimate accuracy (i.e., sensitivity, specificity, PPV, NPV) at various cutpoints of the diagnostic test’s results.
+
+Obuchowski proposed a nonparametric method for estimating and comparing the accuracies of diagnostic tests when the clinical marker is not binary scale(Obuchowski and Bullen 2018). It extends the traditional ROC method to situations where the clinical marker could be nominal-, ordinal- or continuous-scale. The accuracy is defined using indices analogous to the traditional area under the ROC curve. This method is suitable here where the imaging biomarker (MARCS by ML) is a quantitative measure, the clinical marker – histology and symptomatology – can be continuous-scale or ordinal scale.
+
+Diagnosis Accuracy for Continuous-Scale Clinical Marker
+
+This scenario includes cases when the clinical/biological outcome is continuous such as Vh:Cd, CDSD GI Severity Score, IEL count, etc.
+
+Let X it denote the result of the diagnostic test for the i th patient who has a continuous-scale gold-standard outcome of t . Here X is MARCS, t is the continuous-scale clinical marker.
+
+Obuchowski (#1) proposed the following estimator of diagnostic test accuracy
+
+θ = 1 N ( N - 1) ∑ i =1 N ∑ j =1 N φ X it , X js (1)
+
+Where i≠j , N is the total number of patients in the study and
+
+φ= 1, if t\>s and X it \> X js 0.5, if t=s or X it = X js 0, otherwise (2)
+
+This type of discrimination index was proposed by Harrell et al (#2) and it is commonly referred to as C index. The overall C index is a linear function of the modified (i.e., modified for ties) Kendall’s τ , where as τ=2θ-1 .
+
+Adapting the ideas of DeLong et al (#3), Obuchowski propose the following estimator of the variance of θ
+
+Var θ = 1 ( N 2 )( N 2 - 1) ∑ i =1 N V X it - θ 2 (3)
+
+Where the structural components are defined as
+
+V X it = 1 N-1 ∑ j=1 N X it , X js (i≠j) (4)
+
+Asymptotic CI for the ROC area can be constructed as below
+
+θ ± z 1- α 2 Var θ (5)
+
+Diagnosis Accuracy for Ordinal-Scale Clinical Marker
+
+With an ordinal-scale clinical marker such as used for symptomatology raw variables, we assume that there are T total number of categories of clinical marker. As in the previous section, let X it denote the result of the diagnostic test for the i th patient who has a gold-standard outcome of t (t=1, …, T) , and let X js denote the result of the diagnostic test for the j th patient who has a gold-standard outcome of s .
+
+All the formulas described in section 1 still apply for this case (#4).
+
+An alternative estimator for ordinal-scale clinical markers is proposed by Obuchowski and given below:
+
+θ ' =1- ∑ t =1 T ∑ s \> t T w ts \* L t , s \* (1- θ ts ) (6)
+
+In equation (6), θ ts is the estimator of diagnostic test accuracy for discriminating between clinical marker outcome t and clinical marker outcome s . The estimator in equation (1) is used to estimate θ ts . w ts is a weight and L t,s is a penalty function; both are defined below. n t is the number of patients with clinical marker outcome t such that the total sample size is given by N= ∑ t=1 t n t .
+
+The weight can be based on the relative sample sizes in the study sample as follows:
+
+w ts = n t n s / ∑ i =1 T ∑ j \> i T n i n j (7)
+
+L t,s is a penalty function with values between zero and one. L t,s =1 is the greatest penalty for the diagnostic test’s inability to distinguish truth state t from truth state s ; L t,s =0 indicates no penalty.
+
+θ ' is interpreted as: Of two randomly chosen patients sampled from different truth states according to the weighting scheme w , θ ' is the probability that the patient with the higher truth state has a higher test score than the patient with the lower truth state, where the penalty of misclassifying patients is defined by the loss function, L. The variance of θ ' is the sum of the estimated variances and covariances of the θ ts ’s weighted appropriately. See Obuchowski (1) for more details.
+
+Analysis Bins Due to the complexity of Celiac disease and the fact that histology and symptomatology often do not agree, we decided to provide insight into the behavior of MARCS under differing degrees of agreement. The analysis is conducted across all patients plus three bins: one where the relative rank of histology and symptomatology are highly concordant, another where they are highly discordant, and a third where concordance between clinical markers is moderate.
+
+The underlying expectation is that there is higher confidence of the severity of the disease when histology and symptomatology agree with each other. Specifically, the cohort will be divided into 3 bins in terms of how well histology and symptomatology agree (Table 6.a).
+
+What are the success criteria? Be clear about whether you are going to use the penalty function or not. State null and alternative hypotheses.
+
+Table 6.a: Definition of bins for interpretation of MARCS relative to clinical markers
+
+Subgroup Definition Good Agreement (G) Marsh-Oberhuber\>2 and CDSD GI Severity Score \>7 Marsh-Oberhuber≤1 and CDSD GI Severity Score ≤3 Poor Agreement (P) Marsh-Oberhuber\>2 and CDSD GI Severity Score ≤3 Marsh-Oberhuber≤1 and CDSD GI Severity Score \>7 Moderate Agreement (M) All subjects except G and P Clinical Validity: Association with Longitudinal Clinical Markers To establish clinical/biological validity in the Monitoring biomarker CoU, we follow the same methodology as used for the Diagnostic CoU, but with values taken as the follow-up value minus the baseline value rather than individual time point values.
+
+To establish clinical/biological validity in the Response biomarker CoU, we build on the results of the Monitoring biomarker CoU, adding the assessment of relative effect (RE) and proportion explained (PE) for each of the two exposures, TAK-062 and gluten (approximated by gluten in urine (GIP), as described below on a composited T to signify the reliable aggregated clinical endpoint. We use a composite of T as means to encompass both histology and symptomatology together. Note that the use of the composite would not be needed were there only one clinical marker to compare with, but the fact that there are multiple suggests use of a method to integrate them.
+
+Why not compare change in composite endpoint to change in MARCS via ROC analysis?
+
+Method to Account for Multiple Clinical Markers To account for the presence of multiple clinical markers rather than only one, we create a composite measure to reflect severity of the disease combining multiple clinical and biological outcomes on the same patient. This composite clinical measure can serve at a second stage of the analysis, as the true endpoint in a surrogacy validation model. We will use a general framework of latent trait item response models for continuous responses (Tutz 2021; Tutz and Jordan 2022) describing the responses as generated by latent traits and item characteristics. The model advances a unifying approach, comprising commonly used item response theory (IRT) models as the Rasch model for binary items and it also provides a genuine latent trait model for continuous responses as an alternative to the classical test theory models. Items can have different formats continuous, binary or polytomous. In the model the items have their own difficulty functions, which replace the item difficulty parameters that are typically used in IRT models and determine the distribution of the corresponding responses. Hence, the responses are linked to unobserved latent traits for each patient that in analogy with the latent traits typically called “abilities”, they express the patients’ disease progression or state.
+
+Let Y pi , p=1, … P, i = 1, … I denote the responses of patient p on clinical item i. The general model is given by
+
+P Y pi \>y =F α i θ p - δ i y
+
+where F(.) is a distribution function, θ p a patient parameter, α i is a strictly positive item discrimination parameter and δ i . the item difficulty function. Thus, θ p can be seen as the patients’ disease-status parameters. Higher values of θ p are associated with high clinical scores, indicating progression of the disease. We will initially consider the above model considering two continuous responses that correspond to sums of all the symptomatology and histology items respectively. In this case, F(.) is the standard normal distribution function and we can further assume that the difficulty is linear i.e., of the form δ i y = δ 0i + δ i y , δ i \> 0 , allowing for some simplifications. Then one obtains that Y pi has a normal distribution function with expectation and variance given by
+
+E Y pi = θ p - δ 0i δ i ,Var Y pi = 1 δ i 2 α i 2
+
+and it is immediately seen that high disease status θ p indicates a tendency to hig\`h responses. The estimation of the item parameters and the posterior estimations of person parameters is based on marginal maximum likelihood methods under the usual assumptions of a centered normal distribution with unknown variance σ θ 2 for the latent variables θ p and of conditional independence of observable variables given the latent variables. Identifiability issues are being resolved by fixing the item discrimination parameter on the first item to unity. Maximization of the marginal log-likelihood is performed by numerical integration techniques such as the Gauss-Hermite integration methods.
+
+Next, the estimated patient parameters θ p will serve as a unique clinical endpoint in the validation of the MARCS scores as surrogate endpoints.
+
+Determination of the Strength of Surrogacy MARCS scores in the first tertile and the entire small bowel will be evaluated as surrogate endpoints of the composited T as dined above to represent histology and symptomatology, using the single-trial framework that defines surrogacy in terms of the individual-level measure of association (Buyse et al. 2016) that is also related to the original definition given by Prentice (1989) (Prentice 1989).
+
+Let S and T denote the surrogate and true endpoints, respectively, and let Z be an indicator variable for treatment. We assume that S and T or appropriate variance stabilizing transformations of them, are normally distributed and that the following bivariate regression model holds
+
+S j = μ S + αZ j + ε Sj
+
+T j = μ T + βZ j + ε Tj
+
+where j = 1,..., n indicates patients, and the error terms have a joint zero-mean normal distribution with covariance matrix
+
+Σ= σ SS σ ST σ ST σ TT .
+
+The fourth operational criterion of Prentice (Prentice 1989), which states that the full effect of treatment upon the true endpoint should be captured by the surrogate, is verified through the conditional distribution of the true endpoint, given treatment and surrogate endpoint, that is expressed as
+
+T j = ◌̃ μ T + β S Z j + γ Z S j + ◌̃ ε Tj ,
+
+where the adjusted treatment effect equals β S = β- σ ST σ SS -1 α , the association between S and T after adjustment for the treatment Z equals γ Z = σ ST σ SS -1 and Var ◌̃ ε Tj = σ TT 1- ρ 2 , ρ= σ ST / σ SS σ TT . Prentice’s criterion requires that β S =0 which implies that T does not depend on Z given S. (Freedman et al. 1992) have argued that the criterion’s interpretation that the effect of Z on T is captured by S is problematic and proposed to use instead the proportion of the treatment effect (PE) explained by the surrogate
+
+PE = β- β S β ,
+
+where β and β S are the estimates of the effect of Z on T without and with adjustment for S. A valid surrogate would be one for which PE is sufficiently close to one. The applicability of PE though has been criticized in the literature as it will tend to be unstable when β is close to zero. Two alternative quantities to access surrogacy are the relative effect (RE) defined as the ratio of the effects of treatment upon the clinical and the surrogate endpoints
+
+RE = β α
+
+and the treatment-adjusted association between the surrogate and the true endpoint
+
+ρ= σ ST σ SS σ TT .
+
+The simple relationship that can be derived between PE, RE and ρ
+
+PE = β- β S β = α β σ ST σ SS -1 = ρ RE σ TT σ SS -1
+
+Shows that PE has the undesirable property of depending on the factor σ TT σ SS -1 which can take any arbitrary value. Note that if we consider a standardized form of the clinical and surrogate endpoints such that the covariance matrix of the bivariate vector of the error terms ε Sj and ε Tj is given by
+
+Σ= 1 ρ ρ 1 ,
+
+the parameter γ Z that captures the association between the surrogate and the true endpoints after correction for the treatment effect is equal to ρ.
+
+Clinical Utility: Documenting the Value of the Validated Biomarkers We wish to estimate the treatment effect using the outcome variables of symptomatology, histology and the different MARCS scores. For the sake of simplicity, we consider binary variables (1/0) to describe the assignment of patients to the treatment arm versus the placebo or the high versus low dose of the drug, collapsing the six dose arms in two categories. Then, the treatment effect on the outcomes can be tested considering null hypotheses that set the corresponding regression coefficients of the binary variable to zero. The utility of the MARCS scores can be possibly quantified by the achieved power of its corresponding test as compared to the power of the tests for the other outcomes.
+
+For each individual patient i=1, …n, we consider M dependent response variables y i1 , ..., y iM describing the symptomatology, histology and the different MARCS scores, each with its own linear regression model and potentially with a different set of predictor variables that include a treatment indicator variable. Denote the jth regression equation in matrix form by
+
+y j = X j β j + ε j j=1, …, M
+
+where y j = ( y 1j , ..., y nj ) T contains the n observed values of the response variable, X j is an nxp j matrix containing the values of p j explanatory input variables, β j is the coefficient vector and ε j = ( ε 1j , ..., ε nj ) T constitutes its error term. The system of these M equations comprises a seemingly unrelated regressions (SUR) model (Zellner 2012; Peremans and Alst 2018). Note that each regression equation in a SUR model is a linear regression model in its own right but the different equations are linked through their error terms. The SUR model permits nonzero correlation between the error terms ε ij and ε ik for a given individual i across equations j and k, Cov( ε ij , ε ik ) = σ jk while assuming that there is no correlation of the error terms across observations Cov( ε ij , ε i'k ) = 0 . The covariance parameters are estimated as σ jk = ε j ε k /n , where ε j is the residual vector of the jth equation obtained from ordinary least squares. The feasible generalized least squares method is typically used for the estimation of the regression coefficients and for testing joint null hypotheses that restrict regression parameters of different equations. Of particular interest are null hypotheses that compare the treatment effects on the response variables of different equations H 0 : β trt, j - β trt, k = 0 .
+
+In the special case that each equation contains exactly the same set of regressors, the SUR estimates turn out to be equivalent to the ordinary least squares estimators obtained equation-by-equation. Still, when each matrix of regressors X j has a submatrix in common, for example if all equations have an intercept term and the treatment indicator, then the SUR coefficients corresponding to the common regressors will be identical to their least squares counterparts. Hence, the testing of the simple null hypotheses that the coefficients of the treatment indicator in each equation are zero can be performed separately for each regression model. Next, we offer a quantitative insight in the power analysis of the tests, assuming for simplicity that the treatment indicator is the only explanatory variable in the model
+
+y i = β 0 + β 1 T i + ε i , ε i \~ N (0, σ 2 )
+
+where n patients, i=1, …, n, are randomly assigned to treatment (T i =1 ) or control (T i =0 ), with outcome y i . In a preliminary step, we standardize the response variable y i that might describe symptomatology, histology or MARCS scores so that it is that each has zero mean and standard deviation of one. Then, the coefficient of the treatment indicator β 1 is expressed in units of standard deviations. More formally, we test
+
+H 0 : β 1 = 0 versus H 1 : β 1 ≠ 0
+
+with the test statistic S=\| β 1 \|/ SE( β 1 ) and the power of the test at effect size b ∈H 1 is P\[ \| β 1 \|/ SE( β 1 ) \> t n-2,α/2 / β 1 = b\] , where t n-2,α is the α =0.05 percentile of Student’s -t distribution with n-2 degrees of freedom. A power calculation typically involves finding the sample size that leads to a certain power, at level α and effect size b. To do this we derive first the formula to relate SE( β 1 ) to the sample size. In the simple linear regression case, we can derive that
+
+SE( β 1 )= σ 1 n T + 1 n-n T
+
+where n T is the number of patients in the treatment arm and n is the total number of patients. Since the response variable is standardized, we can assume that σ=1 . Figure 13 shows the power as a function of total sample size, for various possible true values of the treatment effect b. The number of patients in the treatment arm in each panel, is specified as 50, 100 and 125 correspondingly. A range of plausible true values b is chosen based on the fact that the treatment coefficient is expressed in units of standard deviations.
+
+Figure 13: Power as a function of total sample size, for various possible true values of the treatment effect.

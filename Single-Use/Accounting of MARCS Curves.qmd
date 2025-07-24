@@ -1,0 +1,204 @@
+---
+title: "Accounting of MARCS Curves"
+format: pdf
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+require(fs)
+require(readxl)
+require(tidyverse)
+require(data.table)
+require(gt)
+provenance<-list()
+input_dir<-"C:\\Users\\eri7441\\OneDrive - Takeda\\Documents - MARCS-Validation-Data\\Input\\TAK-062-2001"
+distribution.folder <- fs::path(input_dir, "INVICRO_DATA_TRANSFER_01-17-2025 cum")
+distribution.file.list <- dir(distribution.folder)
+
+raw <- fs::path(distribution.folder, dir(distribution.folder, pattern="Takeda_VCE_Anatomical_Marking_Report"))
+AMR <- read_excel(raw)
+AMR <- AMR %>% 
+  dplyr::rename(
+    STUDYID=Protocol,
+    mixedSITE=`Site Number`,
+    SUBJID=`Subject ID`,
+    VISIT=`Imaging Timepoint`,
+    CapsuleID=`Capsule ID`,
+    IQ_SB=`What was the image quality over the small bowel?`,
+    IQ_T1=`What was the image quality over the first third of the small bowel?`,
+    IQ_T2=`What was the image quality over the second third of the small bowel?`,
+    IQ_T3=`What was the image quality over the final third of the small bowel?`,
+    CecumReached=`Was the cecum reached?`) %>%
+  dplyr::mutate(SITE=as.character(as.numeric(mixedSITE))) %>%
+  dplyr::select(-mixedSITE)
+
+lbl <- c("Study Identifier",
+         "Study Site Identifier",
+         "Subject Identifier for the Study",
+         "Analysis Visit", 'Capsule ID', 
+         'What was the image quality over the small bowel?',
+         'What was the image quality over the first third of the small bowel?',
+         'What was the image quality over the second third of the small bowel?',
+         'What was the image quality over the final third of the small bowel?',
+         'Was the cecum reached?'
+)
+labelled::var_label(AMR) <- split(lbl, names(AMR))
+
+
+metrics.ML.region_level.files <- dir(distribution.folder, pattern="Metrics", full.names=TRUE)
+metrics.ML.region_level.data <- data.frame()
+file_limit_for_debugging <- 5
+
+# Initialize the data table and provenance list
+metrics.ML.region_level.data <- data.table()
+# Read and bind data more efficiently
+metrics.ML.region_level.data <- rbindlist(lapply(metrics.ML.region_level.files, function(file) {
+  df <- fread(file)
+  provenance <<- unique(append(provenance, paste(file, ":", nrow(df), " rows,", ncol(df), "columns\n")))
+  return(df)
+}), use.names = TRUE, fill = TRUE)
+metrics.ML.region_level.data <- as.data.frame(metrics.ML.region_level.data)
+
+# Set working directory to the latest data pull
+setwd("C:/Users/eri7441/OneDrive - Takeda/Documents - MARCS-Validation-Data/Input/TAK-062-2001/INVICRO_DATA_TRANSFER_01-17-2025 cum")
+files<-dir(pattern="MLOutput")
+regex_pattern <- "(.*)_MLOutput.*"
+# Extract the unique Site-SubjectID substrings
+extracted_substrings <- (str_match(files, regex_pattern)[, 2])
+
+# Set the desired output directory
+output_dir <- "C:/Users/eri7441/OneDrive - Takeda/Documents - MARCS-Validation-Data/Output/Single Timepoint Association/2025-01-21 TAK-062-2001 GC/figures"
+
+# Read the input analysis data
+analysis_data <- read_csv(
+  "C:/Users/eri7441/OneDrive - Takeda/Documents - MARCS-Validation-Data/Output/Precision/2025-01-23 TAK-062-2001 GC/6a merged_data.ML.full.csv"
+)
+analysis_data <- analysis_data %>% dplyr::mutate(VISIT=ifelse(Retest.Flag==TRUE, paste0(VISIT, " Retest"), VISIT))
+
+
+
+# cat(paste0("Number of rows in AMR: " , nrow(AMR), "\n"))
+# cat(paste0("Number of rows in AMR with non-missing cecum reached: " , nrow(AMR %>% dplyr::filter(!is.na(`CecumReached`) & CecumReached=="Yes")), "\n"))
+# cat(paste0("Number of rows in AMR with non-missing cecum reached & T1 != poor: " , nrow(AMR %>% dplyr::filter(!is.na(`CecumReached`) & CecumReached=="Yes" & IQ_T1!="poor")), "\n"))
+# cat(paste0(sum(table(metrics.ML.region_level.data$Timepoint)), " videos files reported\n"))
+# cat(paste0("Number of videos in analysis data: ", sum(table(analysis_data$VISIT)), "\n"))
+# cat(paste0("Number of unique subjects with video data"), analysis_data$SUBJID %>% unique() %>% length(), "\n")
+# cat(paste0("Number of subjects with 1 metrics file: ", table(table(extracted_substrings))[1], "\n"))
+# cat(paste0("Number of subjects with 2 metrics files: ", table(table(extracted_substrings))[2], "\n"))
+# cat(paste0("Number of subjects with 3 metrics files: ", table(table(extracted_substrings))[3], "\n"))  
+# cat(paste0("Number of subjects with 4 metrics files: ", table(table(extracted_substrings))[4], "\n"))
+data.frame(Source=c("Number of rows in AMR: ", 
+                    "Number of rows in AMR with non-missing cecum reached: ",
+                    "Number of rows in AMR with non-missing cecum reached & T1 != poor: ",
+                    "Video files reported",
+                    "Number of videos in analysis data",
+                    "Number of unique subjects with video data",
+                    "Number of subjects with 1 metrics file",
+                    "Number of subjects with 2 metrics files",
+                    "Number of subjects with 3 metrics files",
+                    "Number of subjects with 4 metrics files"), 
+           Value=c(nrow(AMR), 
+                   nrow(AMR %>% dplyr::filter(!is.na(`CecumReached`) & CecumReached=="Yes")),
+                   nrow(AMR %>% dplyr::filter(!is.na(`CecumReached`) & CecumReached=="Yes" & IQ_T1!="poor")),
+                   sum(table(metrics.ML.region_level.data$Timepoint)),
+                   sum(table(analysis_data$VISIT)),
+                   analysis_data$SUBJID %>% unique() %>% length(),
+                   table(table(extracted_substrings))[1],
+                   table(table(extracted_substrings))[2],
+                   table(table(extracted_substrings))[3],
+                   table(table(extracted_substrings))[4]
+                   )) %>% gt() %>% tab_header(title = "AMR Data Summary")
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+# Number of videos in analysis data by visit
+analysis_data %>% dplyr::select(SUBJID, VISIT) %>%
+  group_by(SUBJID) %>%
+  dplyr::mutate(visits=paste(VISIT, collapse=", ")) %>%
+  group_by(VISIT) %>%
+  dplyr::summarize(n=n()) %>% arrange(desc(n)) %>% 
+  gt() %>%
+  tab_header(title = "Number of Videos in Analysis Data by Visit")
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+# Number of combinations of videos
+analysis_data %>% dplyr::select(SUBJID, VISIT) %>%
+  group_by(SUBJID) %>%
+  dplyr::mutate(visits=paste(VISIT, collapse=", ")) %>%
+  slice(1) %>%
+  group_by(visits) %>%
+  dplyr::summarize(n=n()) %>% arrange(desc(n)) %>%
+  gt() %>%
+  tab_header(title = "Number of Combinations of Videos")
+```
+
+
+```{r eval=FALSE, echo=FALSE, warning=FALSE, message=FALSE}
+# Group and arrange data by STUDYID, SITE, and SUBJID
+for_arm <- analysis_data %>%
+  group_by(STUDYID, SITE, SUBJID) %>%
+  arrange(STUDYID, SITE, SUBJID, VISIT) %>%
+  dplyr::slice(1) %>%
+  dplyr::mutate(key = paste0(SUBJID))
+
+# Create a PDF to save the plots
+pdf(file = file.path(output_dir, "MARCS_curves.pdf"), height = 8.5, width = 13)
+
+# Loop through each extracted substring
+for (j in extracted_substrings %>% unique()) {
+  temp <- data.frame()
+  
+  # Find and read all files matching the pattern
+  pattern <- paste0(j, "_MLOutput")
+  for (i in dir(pattern = pattern)) {
+    temp <- rbind(temp, read_csv(i))
+  }
+  x_position <- -0.05
+  y_position <- 4
+  temp$timepoint <- factor(temp$timepoint, sort(unique(analysis_data$VISIT)))
+
+  temp.table <- analysis_data %>%
+    dplyr::filter(SUBJID == temp$subjectId[1]) %>%
+    dplyr::select(SUBJID, ARM, VISIT, First5Percent_Mean, BVA, Tertile2_Mean, Tertile3_Mean) %>%
+  dplyr::mutate(First5Percent_Mean= round(First5Percent_Mean, 2),
+                BVA= round(BVA, 2),
+                Tertile2_Mean= round(Tertile2_Mean, 2),
+                Tertile3_Mean= round(Tertile3_Mean, 2))
+
+  # Create a ggplot for the extracted data
+  p <- ggplot(temp, aes(x = position, y = CurvePredicted_Average)) +
+    geom_smooth(aes(colour = timepoint), show.legend = TRUE) +
+    # scale_color_brewer(drop = FALSE, palette = "Dark2")
+    scale_color_manual(drop=FALSE, values=1:4) +
+    labs(
+      x = "Position",
+      y = "Predicted Curve Average",
+      title = "Smoothed Predicted Curve Average vs Position by Timepoint",
+      color = "Timepoint",
+      subtitle = paste0("Subject ID: ", temp$subjectId[1], " Arm: ", for_arm %>% dplyr::filter(key == temp$subjectId[1]) %>% dplyr::pull(ARM)),
+    caption="If statistics are missing from table, image quality was an issue.") +
+    theme(legend.position = "bottom") +
+    geom_vline(xintercept = c(-0.05, 0, 1/3, 2/3), linetype = "dashed", color = "black") +
+    ylim(0, 4)
+  if(nrow(temp.table) > 0)
+    p <- p + geom_table(
+      data = data.frame(x = x_position, y = y_position, table = I(list(temp.table))),
+      aes(x = x, y = y, label = table), hjust=0
+    )
+  
+  # Print the plot to the PDF
+  print(p)
+}
+
+# Close the PDF device
+dev.off()
+
+```
+
+
+
+
+

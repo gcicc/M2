@@ -1,0 +1,1345 @@
+---
+title: "CDSD Daily investigation"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+# Identify randomized subjects
+
+```{r}
+require(tidyverse)
+require(gridExtra)
+library(ggplot2)
+library(cluster)
+library(factoextra)
+library(readxl)
+library(readr)
+```
+
+```{r}
+demog <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/Demographics_data.xlsx"))
+demog %>% dplyr::filter(`Randomized Population Flag` == "Y") %>% dplyr::pull(`Unique Subject Identifier`) %>% unique() -> randomized_subjects
+```
+
+```{r}
+Hist <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/CDSD_Histology_data.xlsx"))
+```
+
+## Create daily plots by subject
+
+### Creates 'CDSD_daily_investigation - TAK-062-2001.pdf'
+
+```{r warning=FALSE, message=FALSE}
+library(readxl)
+CDSD <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/CDSD_daily_data.xlsx"))
+
+# Scale values for each endpoint
+CDSD <- CDSD %>%
+  group_by(`Question Name`) %>%
+  dplyr::mutate(scaled.endpoints = scale(`Numeric Finding in Standard Units`)) %>%
+  dplyr::select(`Unique Subject Identifier`, `Study Day of Finding`, `Question Name`, `Numeric Finding in Standard Units`, `Epoch`, `scaled.endpoints`)
+
+setwd("C:/Users/eri7441/Documents/MARCS/Single-Use")
+pdf("CDSD_daily_investigation - TAK-062-2001.pdf", h = 8.5, w = 11)
+for (i in 1:length(randomized_subjects)) {
+  temp <- CDSD %>% dplyr::filter(`Unique Subject Identifier` == randomized_subjects[i])
+  if (max(temp$`Study Day of Finding`) > 150) {
+    p <- CDSD %>%
+      dplyr::filter(`Unique Subject Identifier` == randomized_subjects[i]) %>%
+      ggplot(aes(x = `Study Day of Finding`, y = `Numeric Finding in Standard Units`, color = Epoch)) +
+      geom_point() +
+      facet_wrap(~`Question Name`, scales = "free_y") +
+      geom_smooth() +
+      labs(
+        title = paste0("CDSD Daily investigation", randomized_subjects[i]),
+        x = "Study Day of Finding",
+        y = "Numeric Finding in Standard Units"
+      ) +
+      theme(legend.position = "bottom") +
+      geom_vline(xintercept = 7 * c(-8, -4, -2, 0, 12, 24), linetype = "dashed", color = "blue") +
+      labs(caption = "Week -8: 1 gluten-free SIGE bar\nScreening period to assess at least 1 GI symptom on 3 out of any 7 consectutive days\nWeek -4: EGD & VCE; 40 get 2nd VCE 7 days later\nRun-in: All get TAK-062 Placebo and gluten-free SIGE [week -4 to week -2] and gluten SIGE [Week -2 to Day-1]")
+    plot(p)
+  }
+}
+dev.off()
+```
+
+### This produces "CDSD_daily_investigation - TAK-062-2001v2.pdf"
+
+Similar to above pdf, with IEL, VHCD added; I did not find the addition of Histology here too helpful.
+
+```{r fig.width=8}
+# RESTART
+CDSD <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/CDSD_daily_data.xlsx"))
+CDSD <- CDSD %>%
+  group_by(`Question Name`) %>%
+  dplyr::mutate(scaled.endpoints = scale(`Numeric Finding in Standard Units`)) %>%
+  dplyr::select(`Unique Subject Identifier`, `Study Day of Finding`, `Question Name`, `Numeric Finding in Standard Units`, `Epoch`, `scaled.endpoints`) %>%
+  dplyr::rename(`Analysis Value` = `Numeric Finding in Standard Units`, Parameter = `Question Name`, `Analysis Relative Day` = `Study Day of Finding`)
+
+# RESTART
+Hist <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/CDSD_Histology_data.xlsx"))
+
+Hist <- Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>%
+  dplyr::select("Unique Subject Identifier", "Analysis Value", "Analysis Relative Day", "Parameter") %>%
+  group_by(Parameter) %>%
+  dplyr::mutate(scaled.endpoints = scale(`Analysis Value`), Epoch = "Histology")
+
+bind_rows(CDSD, Hist) -> combined_data
+combined_data <- combined_data %>% dplyr::mutate(scaled.endpoints = ifelse(Parameter == "Villus Height/Crypt Depth", scaled.endpoints * -1, scaled.endpoints))
+combined_data$Parameter <- factor(combined_data$Parameter, levels = c(
+  "CDS1-How Severe Was Your Diarrhea",
+  "CDS1-How Severe Was Your Abdominal Pain",
+  "CDS1-How Severe Was Your Bloating",
+  "CDS1-How Severe Was Your Nausea",
+  "CDS1-How Severe Was Your Tiredness",
+  "CDS1-How Many Times Did You Vomit",
+  "CDS1-How Many Bowel Movements",
+  "CDS1-Bowel Movements Type 6 or 7",
+  "CD3 Intraepithelial Lymphocytes Count",
+  "Villus Height/Crypt Depth"
+))
+setwd("C:/Users/eri7441/Documents/MARCS/Single-Use")
+pdf("CDSD_daily_investigation - TAK-062-2001v2.pdf", h = 8.5, w = 11)
+for (i in 1:length(randomized_subjects)) {
+  temp <- combined_data %>% dplyr::filter(`Unique Subject Identifier` == randomized_subjects[i])
+  if (max(temp$`Analysis Relative Day`) > 150) {
+    p <- temp %>%
+      dplyr::filter(`Unique Subject Identifier` == randomized_subjects[i]) %>%
+      ggplot(aes(x = `Analysis Relative Day`, y = `Analysis Value`, color = Epoch)) +
+      geom_point() +
+      facet_wrap(~`Parameter`, scales = "free_y") +
+      geom_smooth() +
+      labs(
+        title = paste0("CDSD Daily investigation", randomized_subjects[i]),
+        x = "Study Day of Finding",
+        y = "Numeric Finding in Standard Units"
+      ) +
+      theme(legend.position = "bottom") +
+      geom_vline(xintercept = 7 * c(0, 12, 24), linetype = "dashed", color = "blue")
+    plot(p)
+  }
+}
+dev.off()
+```
+
+## Signal-to-Noise Ratio and Stability
+
+```{r}
+# RESTART
+CDSD <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/CDSD_daily_data.xlsx"))
+# Add GISS endpoint
+CDSD <- CDSD %>%
+  dplyr::select(`Unique Subject Identifier`, `Study Day of Finding`, `Question Name`, `Numeric Finding in Standard Units`, `Epoch`) %>%
+  pivot_wider(names_from = `Question Name`, values_from = `Numeric Finding in Standard Units`, values_fn = mean) %>%
+  dplyr::mutate(GISS = (`CDS1-How Severe Was Your Diarrhea` + `CDS1-How Severe Was Your Abdominal Pain` + `CDS1-How Severe Was Your Bloating` + `CDS1-How Severe Was Your Nausea`) / 4)
+
+CDSD <- CDSD %>%
+  pivot_longer(cols = -c(1:3)) %>%
+  dplyr::rename(`Question Name` = name)
+
+CDSD %>%
+  group_by(`Question Name`) %>%
+  dplyr::summarise(mean = mean(value, na.rm = TRUE), sd = sd(value, na.rm = TRUE)) %>%
+  dplyr::mutate(snr = mean / sd) %>%
+  arrange(desc(snr)) -> snr_long
+
+snr_long
+```
+
+```{r}
+# Calculate the standard deviation of differences and CV for each endpoint
+stability_stats <- CDSD %>%
+  group_by(`Question Name`, `Unique Subject Identifier`) %>%
+  arrange(`Unique Subject Identifier`, `Study Day of Finding`) %>%
+  mutate(diff = c(NA, diff(value))) %>%
+  group_by(`Question Name`) %>%
+  dplyr::summarise(
+    sd_diff = sd(diff, na.rm = TRUE),
+    cv = sd(value, na.rm = TRUE) / mean(value, na.rm = TRUE)
+  ) %>%
+  arrange((cv))
+
+
+stability_stats
+```
+
+## Exploring Histology data
+
+### Change in histology densities
+
+```{r}
+# RESTART
+Hist <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/CDSD_Histology_data.xlsx"))
+Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>%
+  dplyr::select(`Visit Name`, "Unique Subject Identifier", "Analysis Value", "Analysis Relative Day", "Parameter", "Change from Baseline", "Percent Change from Baseline") %>%
+  dplyr::group_by(`Unique Subject Identifier`, Parameter) %>%
+  dplyr::filter(`Visit Name` == "Visit 6") %>%
+  ggplot(aes(x = `Percent Change from Baseline`)) +
+  geom_density() +
+  facet_wrap(`Visit Name` ~ Parameter, scales = "free_x") +
+  geom_vline(xintercept = 0) +
+  labs(title = "Percent Change from Baseline ")
+```
+
+### Change in histology scatterplot
+
+```{r}
+Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>%
+  dplyr::select(`Visit Name`, "Unique Subject Identifier", "Analysis Value", "Analysis Relative Day", "Parameter", "Change from Baseline", "Percent Change from Baseline") %>%
+  dplyr::group_by(`Unique Subject Identifier`, Parameter) %>%
+  dplyr::filter(`Visit Name` == "Visit 6") %>%
+  dplyr::select(c(1, 4, 5) + 1) %>%
+  pivot_wider(names_from = `Parameter`, values_from = `Change from Baseline`) %>%
+  ggplot(aes(x = `Villus Height/Crypt Depth`, y = `CD3 Intraepithelial Lymphocytes Count`)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  geom_vline(xintercept = 0) +
+  geom_hline(yintercept = 0) +
+  labs(title = "Change in Histology Endpoints", x = "Villus Height/Crypt Depth", y = "CD3 Intraepithelial Lymphocytes Count")
+
+# Later - Earlier: IEL we want Low at follow - high at baseline, so negative change
+# Later - Earlier: Villus Height we want high at follow - low at baseline, so positive change
+
+# Correlations
+Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>%
+  dplyr::select("Unique Subject Identifier", "Analysis Value", "Analysis Relative Day", "Parameter", "Change from Baseline", "Percent Change from Baseline") %>%
+  dplyr::group_by(`Unique Subject Identifier`, Parameter) %>%
+  slice(2) %>%
+  dplyr::select(c(1, 4, 5)) %>%
+  pivot_wider(names_from = `Parameter`, values_from = `Change from Baseline`) %>%
+  ungroup() %>%
+  dplyr::select(-1) %>%
+  cor(x = ., use = "pairwise.complete.obs")
+```
+
+### Baseline vs week 24
+
+```{r}
+Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>%
+  dplyr::select(`Visit Name`, "Unique Subject Identifier", "Analysis Value", "Analysis Relative Day", "Parameter", "Baseline Value", "Change from Baseline", "Percent Change from Baseline") %>%
+  dplyr::group_by(`Unique Subject Identifier`, Parameter) %>%
+  dplyr::filter(`Visit Name` == "Visit 6") %>%
+  ggplot(aes(x = `Baseline Value`, y = `Analysis Value`, color = Parameter)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  facet_wrap(~Parameter, scales = "free") +
+  labs(title = "Baseline vs. Follow-up:  Histology Endpoints", x = "Baseline Value", y = "Value at Week 24") +
+  theme(legend.position = "bottom") +
+  geom_abline(slope = 1)
+```
+
+### Baseline vs Change from baseline to week 24
+
+```{r}
+Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>%
+  dplyr::select(`Visit Name`, "Unique Subject Identifier", "Analysis Value", "Analysis Relative Day", "Parameter", "Baseline Value", "Change from Baseline", "Percent Change from Baseline") %>%
+  dplyr::group_by(`Unique Subject Identifier`, Parameter) %>%
+  dplyr::filter(`Visit Name` == "Visit 6") %>%
+  ggplot(aes(x = `Baseline Value`, y = `Change from Baseline`, color = Parameter)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  geom_hline(yintercept = 0) +
+  geom_vline(xintercept = 0) +
+  facet_wrap(~Parameter, scales = "free") +
+  labs(title = "Baseline vs. Change from Baseline Histology Endpoints", x = "Baseline Value", y = "Change from baseline at Week 24") +
+  theme(legend.position = "bottom")
+```
+
+```{r}
+Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>%
+  dplyr::select("Unique Subject Identifier", "Analysis Value", "Analysis Relative Day", "Parameter", "Change from Baseline", "Percent Change from Baseline") %>%
+  dplyr::group_by(`Unique Subject Identifier`, Parameter) %>%
+  slice(2) %>%
+  dplyr::select(c(1, 4, 5)) %>%
+  pivot_wider(names_from = `Parameter`, values_from = `Change from Baseline`) %>%
+  dplyr::filter(`Villus Height/Crypt Depth` < -.5, `CD3 Intraepithelial Lymphocytes Count` > 15) %>%
+  dplyr::select(`Unique Subject Identifier`) %>%
+  unique() -> potential_outliers
+```
+
+## features.pdf - how do symptoms vary over various windows
+
+1.  How do the CDSD endpoints during screening and 1st two weeks of run-in compare to:
+
+-   window before 12 week,
+-   window including 12 week,
+-   window after 12 week
+-   window before week 24
+
+2.  How do the CDSD endpoints during 2nd two weeks of run in compare to
+
+-   screening and 1st two weeks of run-in
+-   window before 12 week
+-   window including 12 week
+-   window before week 24
+
+```{r}
+library(readxl)
+# RESTART
+CDSD <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_01_08_2025/CDSD_daily_data.xlsx"))
+CDSD <- CDSD %>%
+  dplyr::filter(`Unique Subject Identifier` %in% randomized_subjects) %>%
+  dplyr::select("Unique Subject Identifier", "Study Day of Finding", "Question Name", "Numeric Finding in Standard Units", "Epoch")
+
+get.metrics <- function(data.in = CDSD, SUBJID) {
+  # Filter the data for the given subject ID
+  temp <- CDSD %>% dplyr::filter(`Unique Subject Identifier` == SUBJID)
+
+  # Bind the rows for different epochs
+  bind_rows(
+
+    # Pre gluten SIGE Epoch (Study Day < -14)
+    temp %>%
+      group_by(`Question Name`) %>%
+      dplyr::filter(`Study Day of Finding` < -14) %>%
+      dplyr::select(`Numeric Finding in Standard Units`) %>%
+      dplyr::summarise(
+        n = n(), mean = mean(`Numeric Finding in Standard Units`, na.rm = TRUE),
+        sd = sd(`Numeric Finding in Standard Units`, na.rm = TRUE)
+      ) %>%
+      dplyr::mutate(Epoch = "Pre gluten SIGE"),
+
+    # Post gluten SIGE Epoch (-14 <= Study Day < 0)
+    temp %>%
+      group_by(`Question Name`) %>%
+      dplyr::filter(`Study Day of Finding` >= -14 & `Study Day of Finding` < 0) %>%
+      dplyr::select(`Numeric Finding in Standard Units`) %>%
+      dplyr::summarise(
+        n = n(), mean = mean(`Numeric Finding in Standard Units`, na.rm = TRUE),
+        sd = sd(`Numeric Finding in Standard Units`, na.rm = TRUE)
+      ) %>%
+      dplyr::mutate(Epoch = "Post gluten SIGE"),
+
+    # Window: Pre 12week Epoch (12 weeks before - 28 days to 12 weeks before day 0)
+    temp %>%
+      group_by(`Question Name`) %>%
+      dplyr::filter(`Study Day of Finding` >= 12 * 7 - 28 & `Study Day of Finding` < 12 * 7) %>%
+      dplyr::select(`Numeric Finding in Standard Units`) %>%
+      dplyr::summarise(
+        n = n(), mean = mean(`Numeric Finding in Standard Units`, na.rm = TRUE),
+        sd = sd(`Numeric Finding in Standard Units`, na.rm = TRUE)
+      ) %>%
+      dplyr::mutate(Epoch = "Window: Pre 12week"),
+
+    # Window: including 12week Epoch (12 weeks before day 0 +/- 14 days)
+    temp %>%
+      group_by(`Question Name`) %>%
+      dplyr::filter(`Study Day of Finding` >= 12 * 7 - 14 & `Study Day of Finding` < 12 * 7 + 14) %>%
+      dplyr::select(`Numeric Finding in Standard Units`) %>%
+      dplyr::summarise(
+        n = n(), mean = mean(`Numeric Finding in Standard Units`, na.rm = TRUE),
+        sd = sd(`Numeric Finding in Standard Units`, na.rm = TRUE)
+      ) %>%
+      dplyr::mutate(Epoch = "Window: including 12week"),
+
+    # Window: Post 12week Epoch (12 weeks from day 0 to 28 days post 12 weeks)
+    temp %>%
+      group_by(`Question Name`) %>%
+      dplyr::filter(`Study Day of Finding` >= 12 * 7 & `Study Day of Finding` < 12 * 7 + 28) %>%
+      dplyr::select(`Numeric Finding in Standard Units`) %>%
+      dplyr::summarise(
+        n = n(), mean = mean(`Numeric Finding in Standard Units`, na.rm = TRUE),
+        sd = sd(`Numeric Finding in Standard Units`, na.rm = TRUE)
+      ) %>%
+      dplyr::mutate(Epoch = "Window: Post 12week"),
+
+    # Window: Pre 24week Epoch (24 weeks before - 28 days to 24 weeks before day 0)
+    temp %>%
+      group_by(`Question Name`) %>%
+      dplyr::filter(`Study Day of Finding` >= 24 * 7 - 28 & `Study Day of Finding` < 24 * 7) %>%
+      dplyr::select(`Numeric Finding in Standard Units`) %>%
+      dplyr::summarise(
+        n = n(), mean = mean(`Numeric Finding in Standard Units`, na.rm = TRUE),
+        sd = sd(`Numeric Finding in Standard Units`, na.rm = TRUE)
+      ) %>%
+      dplyr::mutate(Epoch = "Window: Pre 24week")
+  ) %>%
+    # Add the subject ID to the result
+    dplyr::mutate(SUBJID = SUBJID)
+}
+
+holdit <- apply(matrix(1:length(randomized_subjects)), 1, function(x) {
+  get.metrics(SUBJID = randomized_subjects[x])
+})
+holdit <- bind_rows(holdit)
+
+holdit$Epoch <- factor(holdit$Epoch, levels = c(
+  "Pre gluten SIGE",
+  "Post gluten SIGE",
+  "Window: Pre 12week",
+  "Window: including 12week",
+  "Window: Post 12week",
+  "Window: Pre 24week"
+))
+
+pdf("features.pdf", h = 8.5, w = 11)
+for (i in randomized_subjects) {
+  p1 <- holdit %>%
+    dplyr::filter(SUBJID == i) %>%
+    dplyr::filter(`Question Name` %in% c(
+      "CDS1-How Many Times Did You Vomit",
+      "CDS1-How Many Bowel Movements",
+      "CDS1-Bowel Movements Type 6 or 7"
+    )) %>%
+    ggplot(aes(x = mean, xmin = mean - sd / sqrt(n), xmax = mean + sd / sqrt(n), y = Epoch, color = Epoch)) +
+    geom_point() +
+    geom_errorbarh() +
+    facet_wrap(~`Question Name`) +
+    theme(legend.position = "bottom") +
+    coord_flip() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+    scale_y_discrete(labels = NULL) +
+    geom_hline(yintercept = 2.5, linetype = 2) +
+    guides(colour = "none") +
+    labs(y = NULL, title = paste0("Subject: ", i))
+
+  p2 <- holdit %>%
+    dplyr::filter(SUBJID == i) %>%
+    dplyr::filter(`Question Name` %in% c(
+      "CDS1-How Severe Was Your Diarrhea",
+      "CDS1-How Severe Was Your Abdominal Pain",
+      "CDS1-How Severe Was Your Bloating",
+      "CDS1-How Severe Was Your Nausea",
+      "CDS1-How Severe Was Your Tiredness"
+    )) %>%
+    ggplot(aes(x = mean, y = Epoch, color = Epoch, xmin = mean - sd / sqrt(n), xmax = mean + sd / sqrt(n))) +
+    geom_point() +
+    geom_errorbarh() +
+    facet_wrap(~`Question Name`) +
+    theme(legend.position = "bottom") +
+    coord_flip() +
+    scale_x_continuous(limits = c(-1, 6), breaks = seq(0, 5, 1)) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1)) +
+    geom_hline(yintercept = 2.5, linetype = 2) +
+    guides(colour = "none")
+  p <- patchwork::wrap_plots(p1, p2, ncol = 1, heights = c(.3, .7))
+  plot(p)
+}
+dev.off()
+```
+
+```{r}
+holdit <- bind_rows(holdit)
+
+holdit %>% ggplot(aes(x=mean, fill=Epoch))+ geom_density(alpha=.5) + facet_wrap(~`Question Name`, scale="free")+
+  theme(legend.position = "bottom")
+
+
+holdit %>% dplyr::select(1, 3, 5, 6) %>%
+  pivot_wider(names_from = `Question Name`, values_from = mean)  
+```
+
+
+# Cluster analysis by symptom
+
+## Identify improvers on symptoms and run test of independence vs. histology improvers
+
+```{r}
+check <- holdit %>% dplyr::select(c(1,3,5,6)) %>%
+  dplyr::mutate(EQuestion = paste(Epoch, "-", `Question Name`)) %>%
+  dplyr::select(-c(1,3)) %>%
+  pivot_wider(names_from=EQuestion, values_from=c(`mean`))
+
+bloat <- check %>% group_by(SUBJID) %>% dplyr::select(contains("Bloat")) %>% na.omit()
+diarrhea <- check %>% group_by(SUBJID) %>% dplyr::select(contains("Diarrhea")) %>% na.omit()
+abdominal_pain <- check %>% group_by(SUBJID) %>% dplyr::select(contains("Abdominal Pain")) %>% na.omit()
+nausea <- check %>% group_by(SUBJID) %>% dplyr::select(contains("Nausea")) %>% na.omit()
+tiredness <- check %>% group_by(SUBJID) %>% dplyr::select(contains("Tiredness")) %>% na.omit()
+how_many <- check %>% group_by(SUBJID) %>% dplyr::select(contains("How Many")) %>% na.omit()
+
+# There's a couple of cluster_analysis_plot functions defined
+cluster_analysis_plot2 <- function(data.in=bloat, k=4) {
+  # Perform k-means clustering
+  kmeans_result <- kmeans(data.in[,-1], centers = k, nstart = 25)
+  data.in <- data.in %>% ungroup()
+  # Add cluster results to the data
+  screening <- data.in %>% mutate(cluster = kmeans_result$cluster)
+  
+  # Compute average values per cluster
+  cluster_means <- screening %>% 
+                    group_by(cluster) %>% 
+                    dplyr::summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)))
+
+  # Pivot data for ggplot
+  temp <- screening %>%
+            pivot_longer(cols = -c(1,ncol(.))) %>%
+            dplyr::mutate(name = factor(name, unique(name)))
+
+  # Compute average values for annotation
+  avg_values <- temp %>%
+                  group_by(cluster, name) %>%
+                  dplyr::summarize(avg_value = mean(value), .groups = 'drop')
+
+  # Create ggplot with annotations
+  p <- temp %>%
+        ggplot(aes(x = as.numeric(as.factor(name)), 
+                   y = value, 
+                   group = `SUBJID`, 
+                   color = as.factor(cluster))) +
+        geom_point() + 
+        geom_line() +  
+        facet_wrap(~cluster) + 
+        coord_flip() + 
+        scale_x_continuous(breaks = 1:length(levels(temp$name)), labels = levels(temp$name)) + 
+        labs(
+          title = "GI Symptoms by Cluster",
+          x = "Symptom",
+          y = "Value",
+          color = "Cluster"
+        ) + 
+         # Add annotations with adjusted aesthetics
+        geom_text(data = avg_values, 
+                  aes(x = as.numeric(as.factor(name)), 
+                      y = avg_value, 
+                      label = round(avg_value, 2)), 
+                  inherit.aes = FALSE, 
+                  color = "black", 
+                  size = 3)
+  
+  return(list(plot = p, kmeans_result = kmeans_result, cluster_means = cluster_means))
+}
+cluster_analysis_plot2(data.in=bloat, k=2)
+cluster_analysis_plot2(data.in=bloat, k=3)
+cluster_analysis_plot2(data.in=bloat, k=4)
+
+# Setting the seed is important as k-means is a random algorithm
+set.seed(123)
+bloat.clust <- cluster_analysis_plot2(data.in=bloat, k=6)
+bloat.improvers <- bloat.clust$plot[[1]] %>% dplyr::filter(cluster %in% c(4,5,6)) %>% dplyr::pull(SUBJID) %>% unique()
+set.seed(123)
+# No diarrea improvers
+diarrhea.clust <- cluster_analysis_plot2(data.in=diarrhea, k=6)
+set.seed(123)
+ab_pain.clust <- cluster_analysis_plot2(data.in=abdominal_pain, k=6)
+ab_pain.improvers <- ab_pain.clust$plot[[1]] %>% dplyr::filter(cluster %in% c(4,5)) %>% dplyr::pull(SUBJID) %>% unique()
+set.seed(123)
+nausea.clust <- cluster_analysis_plot2(data.in=nausea, k=6)
+nausea.improvers <- nausea.clust$plot[[1]] %>% dplyr::filter(cluster %in% c(1)) %>% dplyr::pull(SUBJID) %>% unique()
+set.seed(123)
+tiredness.clust <- cluster_analysis_plot2(data.in=tiredness, k=6)
+tiredness.improvers <- tiredness.clust$plot[[1]] %>% dplyr::filter(cluster %in% c(4,5)) %>% dplyr::pull(SUBJID) %>% unique()
+set.seed(123)
+# No improvers
+how_many.clust <- cluster_analysis_plot2(data.in=how_many, k=6)
+
+improvers <- c(bloat.improvers, ab_pain.improvers, nausea.improvers, tiredness.improvers) %>% unique()
+
+Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>% dplyr::filter(`Visit Name` == "Visit 6") %>%
+  dplyr::select("Unique Subject Identifier", "Analysis Value", "Analysis Relative Day", "Parameter", "Change from Baseline", "Percent Change from Baseline") %>%
+  dplyr::group_by(`Unique Subject Identifier`, Parameter) %>%
+  dplyr::select(c(1, 4, 5)) %>%
+  pivot_wider(names_from = `Parameter`, values_from = `Change from Baseline`) %>%
+  dplyr::mutate(`symptom improver` = ifelse(`Unique Subject Identifier` %in% improvers, "Improver", "Non-Improver")) %>%
+  ggplot(aes(x = `Villus Height/Crypt Depth`, y = `CD3 Intraepithelial Lymphocytes Count`, color = `symptom improver`)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  geom_vline(xintercept = 0) +
+  geom_hline(yintercept = 0) +
+  labs(title = "Change in Histology Endpoints", x = "Villus Height/Crypt Depth", y = "CD3 Intraepithelial Lymphocytes Count")
+
+
+for.tables <- Hist %>% dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>%
+  dplyr::select("Unique Subject Identifier", "Analysis Value", "Analysis Relative Day", "Parameter", "Change from Baseline", "Percent Change from Baseline", `Visit Name`) %>% dplyr::group_by(`Unique Subject Identifier`, Parameter) %>% dplyr::filter(`Visit Name` == "Visit 6") %>% dplyr::select(c(1,4,5)) %>%
+  pivot_wider(names_from = `Parameter`, values_from = `Change from Baseline`) %>% dplyr::mutate(`symptom improver`=ifelse(`Unique Subject Identifier` %in% improvers, "Improver", "Non-Improver")) %>% 
+  dplyr::mutate(IELimprover = ifelse(`CD3 Intraepithelial Lymphocytes Count` < 0, "Improver", "Non-Improver"),
+                VHCDimprover = ifelse(`Villus Height/Crypt Depth` > 0, "Improver", "Non-Improver"))
+
+tidy(fisher.test(table(symptoms = for.tables$`symptom improver`, IEL = for.tables$`IELimprover`)))
+fisher.test(table(symptoms = for.tables$`symptom improver`, VHCD = for.tables$`VHCDimprover`))
+fisher.test(table(IEL = for.tables$`IELimprover`, VHCD = for.tables$`VHCDimprover`))
+
+
+chisq.test(table(symptoms = for.tables$`symptom improver`, IEL = for.tables$`IELimprover`))
+chisq.test(table(symptoms = for.tables$`symptom improver`, VHCD = for.tables$`VHCDimprover`))
+chisq.test(table(IEL = for.tables$`IELimprover`, VHCD = for.tables$`VHCDimprover`))
+```
+
+```{r}
+Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth"), `Unique Subject Identifier` %in% randomized_subjects) %>% 
+  dplyr::filter(`Visit Name` %in% c("Visit 2", "Visit 6")) %>%
+  dplyr::select("Unique Subject Identifier", "Analysis Value", `Visit Name`, "Parameter") %>%
+  dplyr::mutate(SymptomImprover = ifelse(`Unique Subject Identifier` %in% improvers, "Improver", "Non-Improver")) %>%
+  ggplot(aes(x=SymptomImprover, y=`Analysis Value`, color=`Visit Name`)) + geom_boxplot() + facet_wrap(~`Visit Name`)+labs(x="Symptom Improvement Status", y="Villus Height/Crypt Depth", title="Villus Height/Crypt Depth by Symptom Improvement Status")
+
+Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth"), `Unique Subject Identifier` %in% randomized_subjects) %>% 
+  dplyr::filter(`Visit Name` %in% c("Visit 2", "Visit 6")) %>%
+  dplyr::select("Unique Subject Identifier", "Analysis Value", `Visit Name`, "Parameter") %>%
+  dplyr::mutate(SymptomImprover = ifelse(`Unique Subject Identifier` %in% improvers, "Improver", "Non-Improver")) %>% group_by(`Visit Name`, SymptomImprover) %>% dplyr::summarize(mean=mean(`Analysis Value`, na.rm = TRUE), sd=sd(`Analysis Value`, na.rm=TRUE),  n=n()) 
+```
+
+# Cluster analysis - screening
+
+```{r}
+# RESTART
+CDSD <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_01_08_2025/CDSD_daily_data.xlsx"))
+CDSD <- CDSD %>% dplyr::filter(`Unique Subject Identifier`%in% randomized_subjects) %>%
+  dplyr::select("Unique Subject Identifier", "Study Day of Finding", "Question Name", "Numeric Finding in Standard Units", "Epoch")
+
+# Filter 
+CDSD %>% dplyr::filter(Epoch =="SCREENING") %>% dplyr::select(`Unique Subject Identifier`, `Question Name`, `Numeric Finding in Standard Units`) %>% 
+  pivot_wider(names_from = `Question Name`, values_from = `Numeric Finding in Standard Units`, values_fn=mean) -> screening 
+screening
+
+screening[,-1] <- scale(screening[,-1])
+# Elbow Method
+fviz_nbclust(screening[,-1], kmeans, method = "wss")
+
+# Silhouette Method
+fviz_nbclust(screening[,-1], kmeans, method = "silhouette")
+```
+
+```{r}
+# Various versions differ due to column idiosyncrasies in data
+cluster_analysis_plot <- function(data.in=screening, k=8, seed=123) {
+  set.seed(seed)
+  # Perform k-means clustering
+  kmeans_result <- kmeans(data.in[,-1], centers = k, nstart = 50)
+  
+   # Add cluster results to the data
+  data.in <- data.in %>% mutate(cluster = kmeans_result$cluster)
+  
+  # Compute average values per cluster
+  cluster_means <- data.in %>% 
+                    group_by(cluster) %>% 
+                    dplyr::summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)))
+
+cluster_means %>% rowwise() %>%  dplyr::summarize(average = mean(c_across(all_of(2:(k+1))))) %>% dplyr::mutate(cluster=1:k) %>% arrange(average) %>% dplyr::mutate(cluster2 = 1:k) %>% dplyr::pull(cluster) -> cluster_order
+
+data.in$cluster <- factor(data.in$cluster, levels = cluster_order, labels = 1:k)
+  
+  # Pivot data for ggplot
+  temp <- data.in %>%
+            pivot_longer(cols = -c(1, ncol(.))) %>%
+            dplyr::mutate(name = factor(name, unique(name)))
+
+  # Compute average values for annotation
+  avg_values <- temp %>%
+                  group_by(cluster, name) %>%
+                  dplyr::summarize(avg_value = mean(value), .groups = 'drop')
+
+  # Create ggplot with annotations
+  p <- temp %>%
+        ggplot(aes(x = as.numeric(as.factor(name)), 
+                   y = value, 
+                   group = `Unique Subject Identifier`, 
+                   color = as.factor(cluster))) +
+        geom_point() + 
+        geom_line() +  
+        facet_wrap(~cluster) + 
+        coord_flip() + 
+        scale_x_continuous(breaks = 1:length(levels(temp$name)), labels = levels(temp$name)) + 
+        labs(
+          title = "GI Symptoms by Cluster",
+          x = "Symptom",
+          y = "Value",
+          color = "Cluster"
+        ) +  scale_color_manual(values = c("1" = "#F8766D", "2"= "#A3A500", "3"="#00BF7D", "4"="#00B0F6","5"= "#E76BF3","6"= "#FF61C3","7"= "grey","8"= "#00BFC4")) +
+         # Add annotations with adjusted aesthetics
+        geom_text(data = avg_values, 
+                  aes(x = as.numeric(as.factor(name)), 
+                      y = avg_value, 
+                      label = round(avg_value, 2)), 
+                  inherit.aes = FALSE, 
+                  color = "black", 
+                  size = 5)
+  
+  return(list(plot = p, kmeans_result = kmeans_result, cluster_means = cluster_means, data.in=data.in))
+}
+```
+
+```{r}
+for.inquiry <- cluster_analysis_plot(data.in=screening, k=8)
+for.inquiry$plot + labs(subtitle="Clusters ranked by average of scaled scores")
+
+
+
+for.inquiry$data.in %>% left_join(analysis.data.in %>% dplyr::select(`Unique Subject Identifier`, ARM) %>% group_by(`Unique Subject Identifier`) %>% slice(1)) %>% 
+  group_by(ARM, cluster) %>% dplyr::summarize(n = n()) %>% pivot_wider(names_from = ARM, values_from = n)
+
+
+
+
+Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>% dplyr::filter(`Visit Name` == "Visit 2") %>%
+  dplyr::select("Unique Subject Identifier", "Analysis Value", "Parameter") %>% group_by(Parameter) %>% dplyr::summarize(value=mean(`Analysis Value`, na.rm = TRUE), n=n()) %>% pivot_wider(names_from = `Parameter`, values_from = value) 
+
+
+temp <-  Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>% dplyr::filter(`Visit Name` == "Visit 2") %>%
+  dplyr::select("Unique Subject Identifier", "Analysis Value", "Parameter") %>% group_by(Parameter) %>% dplyr::summarize(value=mean(`Analysis Value`, na.rm = TRUE), n=n()) %>% pivot_wider(names_from = `Parameter`, values_from = value) %>% ungroup() %>% dplyr::mutate(cluster="0")
+
+Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>% dplyr::filter(`Visit Name` == "Visit 2") %>%
+  dplyr::select("Unique Subject Identifier", "Analysis Value", "Parameter") %>% left_join(for.inquiry$data.in %>% dplyr::select(1,10), by = "Unique Subject Identifier") %>% group_by(Parameter, cluster) %>% dplyr::summarize(value=mean(`Analysis Value`, na.rm = TRUE), n=n())  %>% pivot_wider(names_from = `Parameter`, values_from = value) %>%
+  dplyr::filter(!is.na(cluster)) %>%
+  ggplot(aes(x = `Villus Height/Crypt Depth`, y = `CD3 Intraepithelial Lymphocytes Count`, size=n, color = as.factor(cluster)))  + geom_point()+  scale_color_manual(values = c("1" = "#F8766D", "2"= "#A3A500", "3"="#00BF7D", "4"="#00B0F6","5"= "#E76BF3","6"= "#FF61C3","7"= "grey","8"= "#00BFC4")) + labs(title="Histology at Screening by Cluster Group", color="Cluster")+
+  geom_point(data =temp, aes(x=`Villus Height/Crypt Depth`, y=`CD3 Intraepithelial Lymphocytes Count`, size =n), color="black")+ geom_hline(yintercept=40, linetype=2)
+  
+```
+
+# Number of bowel movements and vomiting
+
+```{r}
+CDSD %>% dplyr::select(`Unique Subject Identifier`,`Study Day of Finding`, `Question Name`, `Numeric Finding in Standard Units`) %>% 
+  group_by(`Unique Subject Identifier`) %>% 
+  pivot_wider(names_from = c(`Question Name`), values_from = `Numeric Finding in Standard Units`, values_fn=mean) -> CDSD.wide
+
+p1 <- ggplot(data.frame(table(CDSD.wide$`CDS1-How Many Bowel Movements`)), aes(x=Var1, y=Freq)) +
+  geom_bar(stat="identity") +
+  geom_text(aes(label=Freq), vjust=-0.5) +
+  labs(title="Number of bowel movements", x="How Many Bowel Movements", y="Frequency")
+
+p2 <- ggplot(data.frame(table(CDSD.wide$`CDS1-How Many Times Did You Vomit`)), aes(x=Var1, y=Freq)) +
+  geom_bar(stat="identity") +
+  geom_text(aes(label=Freq), vjust=-0.5) +
+  labs(title="Number of Vomits", x="How Many Times Did You Vomit", y="Frequency")
+grid.arrange(p1+ylim(0,8000),p2+ylim(0,26000))
+```
+
+## Cluster analysis - blinded Treatment
+
+Q: Do we see similar subgroups during blinded treatment?
+
+```{r}
+# RESTART
+CDSD <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_01_08_2025/CDSD_daily_data.xlsx"))
+CDSD <- CDSD %>% dplyr::filter(`Unique Subject Identifier`%in% randomized_subjects) %>%
+  dplyr::select("Unique Subject Identifier", "Study Day of Finding", "Question Name", "Numeric Finding in Standard Units", "Epoch")
+
+# Filter 
+CDSD %>% dplyr::filter(Epoch =="BLINDED TREATMENT") %>% dplyr::select(`Unique Subject Identifier`, `Question Name`, `Numeric Finding in Standard Units`) %>% 
+  pivot_wider(names_from = `Question Name`, values_from = `Numeric Finding in Standard Units`, values_fn=mean) -> BLINDED.TREATMENT 
+BLINDED.TREATMENT
+
+BLINDED.TREATMENT[,-1] <- scale(BLINDED.TREATMENT[,-1])
+# Elbow Method
+fviz_nbclust(BLINDED.TREATMENT[,-1], kmeans, method = "wss")
+
+# Silhouette Method
+fviz_nbclust(BLINDED.TREATMENT[,-1], kmeans, method = "silhouette")
+```
+
+```{r}
+set.seed(123)
+for.inquiry2 <- cluster_analysis_plot(data.in=BLINDED.TREATMENT, k=8)
+for.inquiry2$plot + labs(subtitle="Clusters ranked by average of scaled scores")
+
+temp <-  Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>% dplyr::filter(`Visit Name` == "Visit 6") %>%
+  dplyr::select("Unique Subject Identifier", "Analysis Value", "Parameter") %>% group_by(Parameter) %>% dplyr::summarize(value=mean(`Analysis Value`, na.rm = TRUE), n=n()) %>% pivot_wider(names_from = `Parameter`, values_from = value) %>% ungroup() %>% dplyr::mutate(cluster="0")
+
+Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>% dplyr::filter(`Visit Name` == "Visit 6") %>%
+  dplyr::select("Unique Subject Identifier", "Analysis Value", "Parameter") %>% left_join(for.inquiry2$data.in %>% dplyr::select(1,10), by = "Unique Subject Identifier") %>% group_by(Parameter, cluster) %>% dplyr::summarize(value=mean(`Analysis Value`, na.rm = TRUE), n=n())  %>% pivot_wider(names_from = `Parameter`, values_from = value) %>%
+  dplyr::filter(!is.na(cluster)) %>%
+  ggplot(aes(x = `Villus Height/Crypt Depth`, y = `CD3 Intraepithelial Lymphocytes Count`, size=n, color = as.factor(cluster)))  + geom_point()+  scale_color_manual(values = c("1" = "#F8766D", "2"= "#A3A500", "3"="#00BF7D", "4"="#00B0F6","5"= "#E76BF3","6"= "#FF61C3","7"= "grey","8"= "#00BFC4")) + labs(title="Histology at W24 by Cluster Group", color="Cluster")+
+  geom_point(data =temp, aes(x=`Villus Height/Crypt Depth`, y=`CD3 Intraepithelial Lymphocytes Count`, size =n), color="black")+ geom_hline(yintercept=40, linetype=2)
+```
+
+## VCE
+
+```{r}
+library(readr)
+output_dir <- "C:\\Users\\eri7441\\OneDrive - Takeda\\Documents - MARCS-Validation-Data\\Output\\Single Timepoint Association\\2024-11-25 TAK-062-2001 GC"
+vce <- read_csv(path(output_dir,"8 analysis.data.in-ML-BVA.csv"))
+
+vce %>% dplyr::filter(VISIT =="VISIT 2 - Week -4") %>% dplyr::select(STUDYID, SUBJID, "BVA", "Tertile1_Max", "Tertile2_Mean", 
+"Tertile2_Max", "Tertile3_Mean", "Tertile3_Max", "All_Mean",               
+"All_Max", "First5Percent_Mean") %>%
+  dplyr::mutate(SUBJID = paste0(STUDYID, "-", SUBJID)) %>% dplyr::select(-c(1)) -> vce.screen
+
+vce %>% dplyr::filter(VISIT =="VISIT 5 - Week 12") %>% dplyr::select(STUDYID, SUBJID, "BVA", "Tertile1_Max", "Tertile2_Mean", 
+"Tertile2_Max", "Tertile3_Mean", "Tertile3_Max", "All_Mean",               
+"All_Max", "First5Percent_Mean") %>%
+  dplyr::mutate(SUBJID = paste0(STUDYID, "-", SUBJID)) %>% dplyr::select(-c(1)) -> vce.v5
+
+
+vce %>% dplyr::filter(VISIT =="VISIT 6 - Week 24") %>% dplyr::select(STUDYID, SUBJID, "BVA", "Tertile1_Max", "Tertile2_Mean", 
+"Tertile2_Max", "Tertile3_Mean", "Tertile3_Max", "All_Mean",               
+"All_Max", "First5Percent_Mean") %>%
+  dplyr::mutate(SUBJID = paste0(STUDYID, "-", SUBJID)) %>% dplyr::select(-c(1)) -> vce.v6
+
+test <- bind_rows(screening %>% dplyr::rename(SUBJID = `Unique Subject Identifier`),
+                  BLINDED.TREATMENT %>% dplyr::rename(SUBJID = `Unique Subject Identifier`))  %>% left_join(bind_rows(vce.screen, vce.v5), by="SUBJID") %>% na.omit()
+test <- bind_rows(screening %>% dplyr::rename(SUBJID = `Unique Subject Identifier`),
+                  BLINDED.TREATMENT %>% dplyr::rename(SUBJID = `Unique Subject Identifier`))  %>% left_join(bind_rows(vce.screen, vce.v6), by="SUBJID") %>% na.omit()
+test[,2:18] <- scale(test[,2:18])
+```
+
+```{r}
+vce.screen <- vce.screen %>% dplyr::mutate(Visit = "Screen")
+vce.v5 <- vce.v5 %>% dplyr::mutate(Visit = "Visit 5")
+vce.v6 <- vce.v6 %>% dplyr::mutate(Visit = "Visit 6")
+bind_rows(vce.screen, vce.v5, vce.v6) %>% dplyr::mutate(SymptomImprover = ifelse(SUBJID %in% improvers, "Improver", "Non-Improver")) %>% 
+  ggplot(aes(x=SymptomImprover, y=BVA, color=Visit)) + geom_boxplot() + facet_wrap(~Visit) + labs(x="Symptom Improvement Status", y="BVA", title="BVA at different timepoints by symptom improvement status")
+
+bind_rows(vce.screen, vce.v5, vce.v6) %>% dplyr::mutate(SymptomImprover = ifelse(SUBJID %in% improvers, "Improver", "Non-Improver")) %>%
+  group_by(Visit, SymptomImprover) %>% 
+ dplyr::summarize(mean=mean(`BVA`, na.rm = TRUE), sd=sd(`BVA`, na.rm=TRUE),  n=n()) 
+```
+
+```{r}
+library(readr)
+vce <- read_csv(path(output_base_dir,"8 analysis.data.in-ML-BVA.csv"))
+
+vce %>% dplyr::select(STUDYID,VISIT, SUBJID, "BVA", "Tertile1_Max", "Tertile2_Mean", 
+"Tertile2_Max", "Tertile3_Mean", "Tertile3_Max", "All_Mean",               
+"All_Max", "First5Percent_Mean") %>% dplyr::filter(VISIT == "VISIT 2 - Week -4") %>%
+  dplyr::mutate(`Unique Subject Identifier` = paste0(STUDYID, "-", SUBJID)) %>% dplyr::select(-c(1,2, 3)) %>% 
+  dplyr::select(`Unique Subject Identifier`, everything())-> vce
+vce[,2:10] <- scale(vce[,2:10]) 
+vce <- vce %>% na.omit()
+ 
+
+
+cluster_analysis_plot(data.in=vce, k=2)
+cluster_analysis_plot(data.in=vce, k=3)
+cluster_analysis_plot(data.in=vce, k=4)
+cluster_analysis_plot(data.in=vce, k=5)
+cluster_analysis_plot(data.in=vce, k=6)
+set.seed(123)
+check <- cluster_analysis_plot(data.in=vce, k=8)
+check$plot + labs(title="VCE Endpoints by Cluster arrange by average of scaled scores")
+
+
+
+
+
+
+```
+
+```{r}
+for.corr <- Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>% dplyr::filter(`Visit Name` == "Visit 2") %>%
+  dplyr::select("Unique Subject Identifier", "Analysis Value", "Parameter") %>% left_join(for.inquiry$data.in %>% dplyr::select(1,10), by = "Unique Subject Identifier") %>% pivot_wider(names_from = `Parameter`, values_from = `Analysis Value`) %>% left_join(for.inquiry$data.in) 
+
+ggcorrplot(cor(for.corr %>% dplyr::filter(cluster == "1") %>% dplyr::select(3:12),use = "pairwise.complete.obs"), method="circle", type="lower", lab=TRUE) + theme(axis.text.x = element_text(angle = 20, hjust = 1, vjust = 1))
+
+ggcorrplot(cor(for.corr %>% dplyr::filter(cluster == "2") %>% dplyr::select(3:12),use = "pairwise.complete.obs"), method="circle", type="lower", lab=TRUE) + theme(axis.text.x = element_text(angle = 20, hjust = 1, vjust = 1))
+
+ggcorrplot(cor(for.corr %>% dplyr::filter(cluster == "3") %>% dplyr::select(3:12),use = "pairwise.complete.obs"), method="circle", type="lower", lab=TRUE) + theme(axis.text.x = element_text(angle = 20, hjust = 1, vjust = 1))
+
+ggcorrplot(cor(for.corr %>% dplyr::filter(cluster == "4") %>% dplyr::select(3:12),use = "pairwise.complete.obs"), method="circle", type="lower", lab=TRUE) + theme(axis.text.x = element_text(angle = 20, hjust = 1, vjust = 1))
+
+
+ggcorrplot(cor(for.corr %>% dplyr::filter(cluster == "5") %>% dplyr::select(3:12),use = "pairwise.complete.obs"), method="circle", type="lower", lab=TRUE) + theme(axis.text.x = element_text(angle = 20, hjust = 1, vjust = 1))
+
+
+ggcorrplot(cor(for.corr %>% dplyr::filter(cluster == "6") %>% dplyr::select(3:12),use = "pairwise.complete.obs"), method="circle", type="lower", lab=TRUE) + theme(axis.text.x = element_text(angle = 20, hjust = 1, vjust = 1))
+
+
+ggcorrplot(cor(for.corr %>% dplyr::filter(cluster == "7") %>% dplyr::select(3:12),use = "pairwise.complete.obs"), method="circle", type="lower", lab=TRUE) + theme(axis.text.x = element_text(angle = 20, hjust = 1, vjust = 1))
+
+
+```
+
+```{r}
+ggcorrplot(cor(vce  %>% left_join(for.corr)%>% dplyr::filter(cluster==1) %>% dplyr::select(-c(1, 11, 14:21)), use="pairwise.complete.obs"), method="circle", type="lower", lab=TRUE) + theme(axis.text.x = element_text(angle = 20, hjust = 1, vjust = 1))
+
+ggcorrplot(cor(vce  %>% left_join(for.corr)%>% dplyr::filter(cluster==2) %>% dplyr::select(-c(1, 11, 14:21)), use="pairwise.complete.obs"), method="circle", type="lower", lab=TRUE) + theme(axis.text.x = element_text(angle = 20, hjust = 1, vjust = 1))
+
+ggcorrplot(cor(vce  %>% left_join(for.corr)%>% dplyr::filter(cluster==3) %>% dplyr::select(-c(1, 11, 14:21)), use="pairwise.complete.obs"), method="circle", type="lower", lab=TRUE) + theme(axis.text.x = element_text(angle = 20, hjust = 1, vjust = 1))
+
+ggcorrplot(cor(vce  %>% left_join(for.corr)%>% dplyr::filter(cluster==4) %>% dplyr::select(-c(1, 11, 14:21)), use="pairwise.complete.obs"), method="circle", type="lower", lab=TRUE) + theme(axis.text.x = element_text(angle = 20, hjust = 1, vjust = 1))
+
+ggcorrplot(cor(vce  %>% left_join(for.corr)%>% dplyr::filter(cluster==5) %>% dplyr::select(-c(1, 11, 14:21)), use="pairwise.complete.obs"), method="circle", type="lower", lab=TRUE) + theme(axis.text.x = element_text(angle = 20, hjust = 1, vjust = 1))
+
+ggcorrplot(cor(vce  %>% left_join(for.corr)%>% dplyr::filter(cluster==6) %>% dplyr::select(-c(1, 11, 14:21)), use="pairwise.complete.obs"), method="circle", type="lower", lab=TRUE) + theme(axis.text.x = element_text(angle = 20, hjust = 1, vjust = 1))
+```
+
+# CDSD Characteristics by cluster
+
+```{r}
+# RESTART
+CDSD <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/CDSD_daily_data.xlsx"))
+CDSD <- CDSD %>% dplyr::filter(`Unique Subject Identifier`%in% randomized_subjects) %>%
+  dplyr::select("Unique Subject Identifier", "Study Day of Finding", "Question Name", "Numeric Finding in Standard Units", "Epoch")
+
+# Filter 
+CDSD <- CDSD %>% dplyr::filter(Epoch =="SCREENING") %>% dplyr::select(`Unique Subject Identifier`, `Question Name`, `Numeric Finding in Standard Units`) %>% 
+  pivot_wider(names_from = `Question Name`, values_from = `Numeric Finding in Standard Units`, values_fn=mean) 
+CDSD <- CDSD %>% dplyr::rename(SUBJID = `Unique Subject Identifier`) %>% left_join(clusters.vce, by="SUBJID")
+
+# Summarize by cluster across numeric columns
+CDSD %>% group_by(cluster) %>% dplyr::summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE))) %>% 
+  dplyr::filter(!is.na(cluster)) %>%
+  pivot_longer(cols = -1) %>% 
+  ggplot(aes(x = name, y = value, group = cluster, color = as.factor(cluster))) +
+  geom_point() + 
+  geom_line() + 
+  coord_flip() + 
+  labs(title = "CDSD Characteristics by Cluster", x = "CDSD Characteristics", y = "Value", color = "Cluster")+
+  scale_y_continuous(breaks=seq(0,4,.4), limits=c(0,4)) + 
+  scale_color_manual(values = c("1" = "#F8766D", "2"= "#A3A500", "3"="#00BF7D", "4"="#00B0F6","5"= "#E76BF3","6"= "#FF61C3","7"= "#636363","8"= "#00BFC4"))
+
+```
+
+```{r}
+CDSD %>% group_by(cluster) %>% dplyr::summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE))) %>% 
+  dplyr::filter(!is.na(cluster)) %>%
+  pivot_longer(cols = -1) %>% 
+  dplyr::filter(cluster %in% c(1,2)) %>%
+  ggplot(aes(x = name, y = value, group = cluster, color = as.factor(cluster))) +
+  geom_point() + 
+  geom_line() + 
+  coord_flip() + 
+  labs(title = "CDSD Characteristics by Cluster", x = "CDSD Characteristics", y = "Value", color = "Cluster")+
+  scale_y_continuous(breaks=seq(0,4,.4), limits=c(0,4)) + 
+  scale_color_manual(values = c("1" = "#F8766D", "2"= "#A3A500", "3"="#00BF7D", "4"="#00B0F6","5"= "#E76BF3","6"= "#FF61C3","7"= "#636363","8"= "#00BFC4"))
+```
+
+```{r}
+CDSD %>% group_by(cluster) %>% dplyr::summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE))) %>% 
+  dplyr::filter(!is.na(cluster)) %>%
+  pivot_longer(cols = -1) %>% 
+  dplyr::filter(cluster %in% c(5, 6)) %>%
+  ggplot(aes(x = name, y = value, group = cluster, color = as.factor(cluster))) +
+  geom_point() + 
+  geom_line() + 
+  coord_flip() + 
+  labs(title = "CDSD Characteristics by Cluster", x = "CDSD Characteristics", y = "Value", color = "Cluster")+
+  scale_y_continuous(breaks=seq(0,4,.4), limits=c(0,4)) + 
+  scale_color_manual(values = c("1" = "#F8766D", "2"= "#A3A500", "3"="#00BF7D", "4"="#00B0F6","5"= "#E76BF3","6"= "#FF61C3","7"= "#636363","8"= "#00BFC4"))
+```
+
+```{r}
+CDSD %>% group_by(cluster) %>% dplyr::summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE))) %>% 
+  dplyr::filter(!is.na(cluster)) %>%
+  pivot_longer(cols = -1) %>% 
+  dplyr::filter(cluster %in% c(7,8)) %>%
+  ggplot(aes(x = name, y = value, group = cluster, color = as.factor(cluster))) +
+  geom_point() + 
+  geom_line() + 
+  coord_flip() + 
+  labs(title = "CDSD Characteristics by Cluster", x = "CDSD Characteristics", y = "Value", color = "Cluster")+
+  scale_y_continuous(breaks=seq(0,4,.4), limits=c(0,4)) + 
+  scale_color_manual(values = c("1" = "#F8766D", "2"= "#A3A500", "3"="#00BF7D", "4"="#00B0F6","5"= "#E76BF3","6"= "#FF61C3","7"= "#636363","8"= "#00BFC4"))
+```
+
+# Compare clusters from screening to clusters at circa 12 weeks and 24 weeks. Do we see movement among clusters?
+
+```{r}
+# RESTART
+CDSD <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/CDSD_daily_data.xlsx"))
+CDSD <- CDSD %>% dplyr::filter(`Unique Subject Identifier`%in% randomized_subjects) %>%
+  dplyr::select("Unique Subject Identifier", "Study Day of Finding", "Question Name", "Numeric Finding in Standard Units", "Epoch")
+
+# Filter 
+CDSD %>% dplyr::filter(Epoch =="SCREENING") %>% dplyr::select(`Unique Subject Identifier`, `Question Name`, `Numeric Finding in Standard Units`) %>% 
+  pivot_wider(names_from = `Question Name`, values_from = `Numeric Finding in Standard Units`, values_fn=mean) -> screening 
+screening
+
+screening[,-1] <- scale(screening[,-1])
+# Elbow Method
+fviz_nbclust(screening[,-1], kmeans, method = "wss")
+
+# Silhouette Method
+fviz_nbclust(screening[,-1], kmeans, method = "silhouette")
+```
+
+```{r}
+# Various versions differ due to column idiosyncrasies in data
+cluster_analysis_plot <- function(data.in, k) {
+  # Perform k-means clustering
+  kmeans_result <- kmeans(data.in[,-1], centers = k, nstart = 50)
+  
+  # Add cluster results to the data
+  screening <- data.in %>% mutate(cluster = kmeans_result$cluster)
+  
+  # Compute average values per cluster
+  cluster_means <- screening %>% 
+                    group_by(cluster) %>% 
+                    dplyr::summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)))
+
+  # Pivot data for ggplot
+  temp <- screening %>%
+            pivot_longer(cols = -c(1, ncol(.))) %>%
+            dplyr::mutate(name = factor(name, unique(name)))
+
+  # Compute average values for annotation
+  avg_values <- temp %>%
+                  group_by(cluster, name) %>%
+                  dplyr::summarize(avg_value = mean(value), .groups = 'drop')
+
+  # Create ggplot with annotations
+  p <- temp %>%
+        ggplot(aes(x = as.numeric(as.factor(name)), 
+                   y = value, 
+                   group = `Unique Subject Identifier`, 
+                   color = as.factor(cluster))) +
+        geom_point() + 
+        geom_line() +  
+        facet_wrap(~cluster) + 
+        coord_flip() + 
+        scale_x_continuous(breaks = 1:length(levels(temp$name)), labels = levels(temp$name)) + 
+        labs(
+          title = "GI Symptoms by Cluster",
+          x = "Symptom",
+          y = "Value",
+          color = "Cluster"
+        ) + 
+         # Add annotations with adjusted aesthetics
+        geom_text(data = avg_values, 
+                  aes(x = as.numeric(as.factor(name)), 
+                      y = avg_value, 
+                      label = round(avg_value, 2)), 
+                  inherit.aes = FALSE, 
+                  color = "black", 
+                  size = 5)
+  
+  return(list(plot = p, kmeans_result = kmeans_result, cluster_means = cluster_means))
+}
+```
+
+```{r}
+set.seed(123)
+for.inquiry <- cluster_analysis_plot(data.in=screening, k=8)
+for.inquiry$plot[[1]]
+
+screening <- screening %>% dplyr::mutate(cluster=for.inquiry$kmeans_result$cluster)
+screening$cluster2 <- as.factor(screening$cluster)
+levels(screening$cluster2) <- c( "Outlier",
+                                 "Typical with Diarrhea/BM",
+                                 "Mild without BM",
+                                 "Outlier",
+                                 "Elevated with Diarrhea",
+                                 "Typical",
+                                 "Elevated without Diarrhea/BM",
+                                "Mild")
+table(screening$cluster2)
+```
+
+```{r}
+# RESTART
+CDSD <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/CDSD_daily_data.xlsx"))
+CDSD <- CDSD %>% dplyr::filter(`Unique Subject Identifier`%in% randomized_subjects) %>%
+  dplyr::select("Unique Subject Identifier", "Study Day of Finding", "Question Name", "Numeric Finding in Standard Units", "Epoch")
+
+# Filter 
+CDSD %>% dplyr::filter(Epoch =="BLINDED TREATMENT") %>% dplyr::select(`Unique Subject Identifier`, `Question Name`, `Numeric Finding in Standard Units`) %>% 
+  pivot_wider(names_from = `Question Name`, values_from = `Numeric Finding in Standard Units`, values_fn=mean) -> BLINDED.TREATMENT 
+
+
+BLINDED.TREATMENT[,-1] <- scale(BLINDED.TREATMENT[,-1])
+# Elbow Method
+
+```
+
+```{r}
+set.seed(123)
+for.inquiry.BT <- cluster_analysis_plot(data.in=BLINDED.TREATMENT, k=8)
+for.inquiry.BT$plot
+
+BLINDED.TREATMENT <- BLINDED.TREATMENT %>% dplyr::mutate(cluster=for.inquiry.BT$kmeans_result$cluster)
+BLINDED.TREATMENT$cluster2 <- as.factor(BLINDED.TREATMENT$cluster)
+levels(BLINDED.TREATMENT$cluster2) <-  c( 
+  "Elevated with Diarrhea",
+                                 "Typical with Diarrhea/BM",
+    "Outlier",
+  "Elevated without Diarrhea/BM",
+  
+                                 "Mild without BM",
+                                "Typical",
+                                 "Outlier",
+                                "Mild")
+
+screening.sub <- screening %>% dplyr::filter(`Unique Subject Identifier` %in% BLINDED.TREATMENT$`Unique Subject Identifier`)
+BLINDED.TREATMENT.sub <- BLINDED.TREATMENT %>% dplyr::filter(`Unique Subject Identifier` %in% screening$`Unique Subject Identifier`)
+
+
+screening.sub$cluster2 <- factor(screening.sub$cluster2, sort(unique(screening.sub$cluster2)))
+
+BLINDED.TREATMENT.sub$cluster2 <- factor(BLINDED.TREATMENT.sub$cluster2, sort(unique(BLINDED.TREATMENT.sub$cluster2)))
+
+my.table<-table(screening.sub$cluster2, BLINDED.TREATMENT.sub$cluster2)
+
+```
+
+# FULL ENDPOINT CLUSTERING
+
+## Merge CDSD during post Gluten challenge period with screening histology and VCE data
+
+```{r}
+demog <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/Demographics_data.xlsx"))
+demog %>% dplyr::filter(`Randomized Population Flag` == "Y") %>% dplyr::pull(`Unique Subject Identifier`) %>% unique() -> randomized_subjects
+CDSD <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_01_08_2025/CDSD_daily_data.xlsx"))
+CDSD <- CDSD %>% dplyr::filter(`Unique Subject Identifier`%in% randomized_subjects) %>%
+  dplyr::select("Unique Subject Identifier", "Study Day of Finding", "Question Name", "Numeric Finding in Standard Units", "Epoch")
+
+Hist <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_11_04_2024/CDSD_Histology_data.xlsx"))
+Hist <- Hist %>%
+  dplyr::filter(Parameter %in% c("Villus Height/Crypt Depth", "CD3 Intraepithelial Lymphocytes Count"), `Unique Subject Identifier` %in% randomized_subjects) %>%
+  dplyr::select("Unique Subject Identifier", "Analysis Value", "Analysis Relative Day", "Parameter") %>%
+  group_by(Parameter) %>%
+  dplyr::mutate(scaled.endpoints = scale(`Analysis Value`), Epoch = "Histology")
+
+output_dir <- "C:\\Users\\eri7441\\OneDrive - Takeda\\Documents - MARCS-Validation-Data\\Output\\Single Timepoint Association\\2025-01-21 TAK-062-2001 GC"
+vce <- read_csv(path(output_dir,"8 analysis.data.in-ML-BVA.csv")) %>% dplyr::mutate(VHCD = -VHCD)
+
+
+```
+
+
+```{r}
+CDSD <- CDSD %>%
+  dplyr::filter(`Unique Subject Identifier` %in% randomized_subjects) %>%
+  dplyr::select("Unique Subject Identifier", "Study Day of Finding", "Question Name", "Numeric Finding in Standard Units", "Epoch")
+
+get.metrics <- function(data.in = CDSD, SUBJID) {
+  # Filter the data for the given subject ID
+  temp <- CDSD %>% dplyr::filter(`Unique Subject Identifier` == SUBJID)
+
+  # Bind the rows for different epochs
+  bind_rows(
+
+    # Pre gluten SIGE Epoch (Study Day < -14)
+    temp %>%
+      group_by(`Question Name`) %>%
+      dplyr::filter(`Study Day of Finding` < -14) %>%
+      dplyr::select(`Numeric Finding in Standard Units`) %>%
+      dplyr::summarise(
+        n = n(), mean = mean(`Numeric Finding in Standard Units`, na.rm = TRUE),
+        sd = sd(`Numeric Finding in Standard Units`, na.rm = TRUE)
+      ) %>%
+      dplyr::mutate(Epoch = "Pre gluten SIGE"),
+
+    # Post gluten SIGE Epoch (-14 <= Study Day < 0)
+    temp %>%
+      group_by(`Question Name`) %>%
+      dplyr::filter(`Study Day of Finding` >= -14 & `Study Day of Finding` < 0) %>%
+      dplyr::select(`Numeric Finding in Standard Units`) %>%
+      dplyr::summarise(
+        n = n(), mean = mean(`Numeric Finding in Standard Units`, na.rm = TRUE),
+        sd = sd(`Numeric Finding in Standard Units`, na.rm = TRUE)
+      ) %>%
+      dplyr::mutate(Epoch = "Post gluten SIGE"),
+
+    # Window: Pre 12week Epoch (12 weeks before - 28 days to 12 weeks before day 0)
+    temp %>%
+      group_by(`Question Name`) %>%
+      dplyr::filter(`Study Day of Finding` >= 12 * 7 - 28 & `Study Day of Finding` < 12 * 7) %>%
+      dplyr::select(`Numeric Finding in Standard Units`) %>%
+      dplyr::summarise(
+        n = n(), mean = mean(`Numeric Finding in Standard Units`, na.rm = TRUE),
+        sd = sd(`Numeric Finding in Standard Units`, na.rm = TRUE)
+      ) %>%
+      dplyr::mutate(Epoch = "Window: Pre 12week"),
+
+    # Window: including 12week Epoch (12 weeks before day 0 +/- 14 days)
+    temp %>%
+      group_by(`Question Name`) %>%
+      dplyr::filter(`Study Day of Finding` >= 12 * 7 - 14 & `Study Day of Finding` < 12 * 7 + 14) %>%
+      dplyr::select(`Numeric Finding in Standard Units`) %>%
+      dplyr::summarise(
+        n = n(), mean = mean(`Numeric Finding in Standard Units`, na.rm = TRUE),
+        sd = sd(`Numeric Finding in Standard Units`, na.rm = TRUE)
+      ) %>%
+      dplyr::mutate(Epoch = "Window: including 12week"),
+
+    # Window: Post 12week Epoch (12 weeks from day 0 to 28 days post 12 weeks)
+    temp %>%
+      group_by(`Question Name`) %>%
+      dplyr::filter(`Study Day of Finding` >= 12 * 7 & `Study Day of Finding` < 12 * 7 + 28) %>%
+      dplyr::select(`Numeric Finding in Standard Units`) %>%
+      dplyr::summarise(
+        n = n(), mean = mean(`Numeric Finding in Standard Units`, na.rm = TRUE),
+        sd = sd(`Numeric Finding in Standard Units`, na.rm = TRUE)
+      ) %>%
+      dplyr::mutate(Epoch = "Window: Post 12week"),
+
+    # Window: Pre 24week Epoch (24 weeks before - 28 days to 24 weeks before day 0)
+    temp %>%
+      group_by(`Question Name`) %>%
+      dplyr::filter(`Study Day of Finding` >= 24 * 7 - 28 & `Study Day of Finding` < 24 * 7) %>%
+      dplyr::select(`Numeric Finding in Standard Units`) %>%
+      dplyr::summarise(
+        n = n(), mean = mean(`Numeric Finding in Standard Units`, na.rm = TRUE),
+        sd = sd(`Numeric Finding in Standard Units`, na.rm = TRUE)
+      ) %>%
+      dplyr::mutate(Epoch = "Window: Pre 24week")
+  ) %>%
+    # Add the subject ID to the result
+    dplyr::mutate(SUBJID = SUBJID)
+}
+
+holdit <- apply(matrix(1:length(randomized_subjects)), 1, function(x) {
+  get.metrics(SUBJID = randomized_subjects[x])
+})
+holdit <- bind_rows(holdit)
+
+holdit$Epoch <- factor(holdit$Epoch, levels = c(
+  "Pre gluten SIGE",
+  "Post gluten SIGE",
+  "Window: Pre 12week",
+  "Window: including 12week",
+  "Window: Post 12week",
+  "Window: Pre 24week"
+))
+holdit.post.gluten <- holdit %>% dplyr::filter(Epoch=="Post gluten SIGE") %>% dplyr::select(-sd, -n) %>% pivot_wider(names_from = `Question Name`, values_from = c("mean")) %>% dplyr::rename(key=SUBJID) %>% dplyr::mutate(VISIT="VISIT 2 - Week -4") %>% dplyr::select(-Epoch)
+holdit.pre.24w <- holdit %>% dplyr::filter(Epoch=="Window: Pre 24week") %>% dplyr::select(-sd, -n) %>% pivot_wider(names_from = `Question Name`, values_from = c("mean")) %>% dplyr::rename(key=SUBJID)%>% dplyr::mutate(VISIT="VISIT 6 - Week 24") %>% dplyr::select(-Epoch)
+```
+
+```{r}
+names(vce)
+vce <- vce %>%
+  dplyr::select(
+    "STUDYID",
+    "SITE",
+    "SUBJID",
+    "VISIT",
+    "ARM",
+    "First5Percent_Mean",
+    "BVA",
+    "Tertile1_Max",
+    "Tertile2_Mean",
+    "Tertile2_Max",
+    "Tertile3_Mean",
+    "Tertile3_Max",
+    "All_Mean",
+    "All_Max",
+    "VHCD",
+    "IELCOUNT"
+  ) %>% dplyr::mutate(key=paste0(STUDYID, "-",SUBJID))
+
+vce.screen <- vce %>% dplyr::filter(VISIT=="VISIT 2 - Week -4")
+vce.pre24 <- vce %>% dplyr::filter(VISIT=="VISIT 6 - Week 24")
+
+hold.screening <- vce.screen %>% left_join(holdit.post.gluten, by=c("key", "VISIT")) 
+hold.screening <- hold.screening %>% dplyr::select(key, VISIT, ARM, 6:25)
+hold.screening %>% pivot_longer(cols = -c(1:3)) %>% 
+  group_by(name) %>% 
+  dplyr::summarize(mean = mean(value, na.rm = TRUE), sd = sd(value, na.rm = TRUE), snr = mean / sd) %>%
+  arrange(desc(snr))
+
+
+hold.screening[,-(1:3)] <- scale(hold.screening[,-(1:3)])
+
+hold.pre24 <- vce.pre24 %>% left_join(holdit.pre.24w, by=c("key", "VISIT"))
+hold.pre24 <- hold.pre24 %>% dplyr::select(key, VISIT, ARM, 6:25)
+hold.pre24[,-(1:3)] <- scale(hold.pre24[,-(1:3)])
+
+
+
+
+```
+
+
+```{r}
+cluster_analysis_plot.all <- function(data.in=hold.screening %>% na.omit(), k=4) {
+  # Perform k-means clustering
+  kmeans_result <- kmeans(data.in[,-(1:3)], centers = k, nstart = 25)
+  data.in <- data.in %>% ungroup()
+  # Add cluster results to the data
+  data.in <- data.in %>% mutate(cluster = kmeans_result$cluster)
+  
+  # Compute average values per cluster
+  cluster_means <- data.in %>% 
+                    group_by(cluster) %>% 
+                    dplyr::summarise(across(where(is.numeric), ~ mean(.x, na.rm = TRUE)))
+
+  cluster_means %>% rowwise() %>%  dplyr::summarize(average = mean(c_across(all_of(2:(k+1))))) %>% dplyr::mutate(cluster=1:k) %>% arrange(average) %>% dplyr::mutate(cluster2 = 1:k) %>% dplyr::pull(cluster) -> cluster_order
+
+data.in$cluster <- factor(data.in$cluster, levels = cluster_order, labels = 1:k)
+  
+  
+  # Pivot data for ggplot
+temp <- data.in %>%
+  pivot_longer(cols = -c(1:3, ncol(.))) %>%
+  dplyr::mutate(name = factor(name, levels = c(
+    "VHCD",
+    "IELCOUNT",
+    "First5Percent_Mean",
+    "BVA",
+    "Tertile1_Max",
+    "Tertile2_Mean",
+    "Tertile2_Max",
+    "Tertile3_Mean",
+    "Tertile3_Max",
+    "All_Mean",
+    "All_Max",
+    "CDS1-Bowel Movements Type 6 or 7",
+    "CDS1-How Many Bowel Movements",
+    "CDS1-How Many Times Did You Vomit",
+    "CDS1-How Severe Was Your Abdominal Pain",
+    "CDS1-How Severe Was Your Bloating",
+    "CDS1-How Severe Was Your Diarrhea",
+    "CDS1-How Severe Was Your Nausea",
+    "CDS1-How Severe Was Your Tiredness"
+  )))
+
+  # Compute average values for annotation
+  avg_values <- temp %>%
+                  group_by(cluster, name) %>%
+                  dplyr::summarize(avg_value = mean(value), .groups = 'drop')
+
+  # Create ggplot with annotations
+  p <- temp %>%
+        ggplot(aes(x = as.numeric(as.factor(name)), 
+                   y = value, 
+                   group = `key`, 
+                   color = as.factor(cluster))) +
+        geom_point() + 
+        geom_line() +  
+        facet_wrap(~cluster) + 
+        coord_flip() + 
+        scale_x_continuous(breaks = 1:length(levels(temp$name)), labels = levels(temp$name)) + 
+        labs(
+          title = "Endpoint Clusters",
+          x = "Symptom",
+          y = "Value",
+          color = "Cluster"
+        ) + 
+         # Add annotations with adjusted aesthetics
+        geom_text(data = avg_values, 
+                  aes(x = as.numeric(as.factor(name)), 
+                      y = avg_value, 
+                      label = round(avg_value, 2)), 
+                  inherit.aes = FALSE, 
+                  color = "black", 
+                  size = 3)
+  
+  return(list(plot = p, kmeans_result = kmeans_result, cluster_means = cluster_means))
+}
+
+
+cluster_analysis_plot.all(data.in=hold.screening %>% na.omit(), k=8)$plot + facet_wrap(~cluster,nrow=2)
+cluster_analysis_plot.all(data.in=hold.pre24 %>% na.omit(), k=9) 
+
+cluster_analysis_plot.all(data.in=bind_rows(hold.screening,hold.pre24) %>% na.omit(), k=9) 
+
+```
+
+
+# PCA
+
+```{r}
+hold.screening.pca <- hold.screening[,-(1:3)]
+hold.screening.pca <- hold.screening.pca %>% dplyr::select(-All_Mean, -All_Max, -Tertile1_Max, -Tertile2_Max, -Tertile3_Max)
+
+
+pca <- prcomp(hold.screening.pca %>% na.omit(), center = TRUE, scale. = TRUE)
+summary(pca)
+screeplot(pca)
+
+summary(pc.cr <- princomp(hold.screening.pca %>% na.omit(), cor = TRUE))
+loadings(pc.cr)  # note that blank entries are small but not zero
+## The signs of the columns of the loadings are arbitrary
+plot(pc.cr) # shows a screeplot.
+biplot(pc.cr)
+```
+

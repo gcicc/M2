@@ -1,0 +1,113 @@
+---
+title: "Train-test"
+format: html
+editor: visual
+---
+
+## Step 1: Use the 80% Testing Data Set to Validate the Models
+
+```{r}
+# Load necessary libraries
+library(caret)
+library(stats)
+
+# Split the data into train (20%) and test (80%) sets
+set.seed(42)
+trainIndex <- createDataPartition(dataset$MARCS_change, p = .20, 
+                                  list = FALSE, 
+                                  times = 1)
+train_data <- dataset[trainIndex,]
+test_data  <- dataset[-trainIndex,]
+```
+
+## Step 2: Evaluate Model Performance Using Metrics
+
+### Train base model
+
+```{r}
+# Train the base model
+base_model <- lm(MARCS_change ~ Drug, data=train_data)
+summary(base_model)
+
+# Generate predictions using the base model
+predictions_base <- predict(base_model, newdata=test_data)
+```
+
+### Train extended model
+
+```{r}
+# Define predictors for the extended model
+predictors_extended <- c("Drug", "Gluten_exposure", "Patient_subtype1", "Patient_subtype2", ...)
+
+# Train the extended model
+extended_model <- lm(as.formula(paste("MARCS_change ~", paste(predictors_extended, collapse=" + "))), data=train_data)
+summary(extended_model)
+
+# Generate predictions using the extended model
+predictions_extended <- predict(extended_model, newdata=test_data)
+```
+
+## Compute evaluation metrics
+
+```{r}
+# R-squared
+r2_base <- summary(base_model)$r.squared
+r2_extended <- summary(extended_model)$r.squared
+
+# Adjusted R-squared
+adjusted_r2_base <- summary(base_model)$adj.r.squared
+adjusted_r2_extended <- summary(extended_model)$adj.r.squared
+
+# Mean Squared Error (MSE)
+mse_base <- mean((test_data$MARCS_change - predictions_base)^2)
+mse_extended <- mean((test_data$MARCS_change - predictions_extended)^2)
+
+# Mean Absolute Error (MAE)
+mae_base <- mean(abs(test_data$MARCS_change - predictions_base))
+mae_extended <- mean(abs(test_data$MARCS_change - predictions_extended))
+
+# Root Mean Squared Error (RMSE)
+rmse_base <- sqrt(mse_base)
+rmse_extended <- sqrt(mse_extended)
+
+# Print the results
+cat("Base Model:\n",
+    "R-squared:", r2_base, "\n",
+    "Adjusted R-squared:", adjusted_r2_base, "\n",
+    "MSE:", mse_base, "\n",
+    "MAE:", mae_base, "\n",
+    "RMSE:", rmse_base, "\n\n")
+
+cat("Extended Model:\n",
+    "R-squared:", r2_extended, "\n",
+    "Adjusted R-squared:", adjusted_r2_extended, "\n",
+    "MSE:", mse_extended, "\n",
+    "MAE:", mae_extended, "\n",
+    "RMSE:", rmse_extended, "\n")
+```
+
+
+## Compare the models to assess improvement
+
+```{r}
+anova_result <- anova(base_model, extended_model)
+print(anova_result)
+```
+
+
+## Residual analysis
+
+```{r}
+# Compute residuals
+residuals_base <- test_data$MARCS_change - predictions_base
+residuals_extended <- test_data$MARCS_change - predictions_extended
+
+# Plot residuals
+plot(predictions_base, residuals_base, main="Base Model Residuals",
+     xlab="Predicted MARCS Change", ylab="Residuals", col="blue", pch=20)
+abline(h=0, col="red")
+points(predictions_extended, residuals_extended, col="green", pch=20)
+legend("topright", legend=c("Base Model", "Extended Model"), 
+       col=c("blue", "green"), pch=20)
+```
+

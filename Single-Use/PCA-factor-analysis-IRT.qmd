@@ -1,0 +1,205 @@
+---
+title: "MIRT practice"
+format: 
+  pdf:
+     fig-numbering: FALSE
+     include-in-header:  
+        - text: |
+            \usepackage{pdflscape}
+toc: TRUE
+number-sections: TRUE
+execute: 
+  echo: FALSE
+  message: FALSE
+  warning: FALSE
+  tbl-cap-location: top
+editor: visual
+params:
+  printcode: FALSE
+---
+
+TEST CHANGE
+
+## Source functions
+
+```{r}
+require(psych)
+require(tidyverse)
+# Note last line here throws an error - but this does not occur when 
+source("C:/Users/eri7441/OneDrive - Takeda/Documents/R-Projects/MARCS/Analytical-Validation/Accuracy/functions/accuracy-setup.R")
+source("C:/Users/eri7441/OneDrive - Takeda/Documents/R-Projects/MARCS/Shared-Content/preamble.R")
+source("C:/Users/eri7441/OneDrive - Takeda/Documents/R-Projects/MARCS/Shared-Content/IRT-models.R")
+```
+
+## Build data sets
+
+```{r}
+source("C:/Users/eri7441/OneDrive - Takeda/Documents/R-Projects/MARCS/Shared-Content/prep-data-062-2001-histology.R")
+source("C:/Users/eri7441/OneDrive - Takeda/Documents/R-Projects/MARCS/Shared-Content/prep-data-062-2001-GISS.R")
+```
+
+```{r}
+# Visit is ignored
+  demog_df <- demog_062_2001_etl()
+  histology_df <- histology_062_2001_etl()
+  symptoms_df <- symptoms_062_2001_etl()  
+```
+
+-   PCA and Factor analysis do not require normality assumption.
+-   both suggest centering and scaling first
+
+```{r}
+# Adding recipricol. Centering and scaling. Removing rows with missing values of GISS
+my.df.working <- my.df %>% mutate(CDVH = 1/VHCD,
+                          VHCD.scaled = (VHCD - mean(VHCD, na.rm=T))/sd(VHCD, na.rm=T),
+                          CDVH.scaled = (CDVH - mean(CDVH, na.rm=T))/sd(CDVH, na.rm=T),
+                          IEL.scaled = (IEL- mean(IEL))/sd(IEL, na.rm=T),
+                          GISS.scaled = (GISS - mean(GISS, na.rm=T))/sd(GISS, na.rm=T)) %>% 
+  dplyr::filter(is.na(GISS) == FALSE)
+
+my.df.scaled.VHCD <- my.df.working %>% dplyr::select(SUBJID, contains("scaled"), -contains("CDVH"))
+names(my.df.scaled.VHCD) <- gsub(x = names(my.df.scaled.VHCD), pattern = ".scaled", replacement = "")
+
+my.df.scaled.CDVH <- my.df.working %>% dplyr::select(SUBJID, contains("scaled"), -contains("VHCD"))
+names(my.df.scaled.CDVH) <- gsub(x=names(my.df.scaled.CDVH) , pattern=".scaled", replacement="")
+```
+
+## CD:VH deviates from normality
+
+```{r}
+hist(my.df.working$VHCD)
+hist(my.df.working$CDVH)
+hist(log(my.df.working$CDVH))  # Still exhibits skewness
+
+qqnorm(y=my.df.working$VHCD);
+qqnorm(y=my.df.working$CDVH);
+```
+
+## Factor Analysis
+
+Factor analysis conducted with (VHCD, IEL, GISS) and (CDVH, IEL, GISS). In both cases, negative degrees of freedom and root mean square of the residuals (RMSR) of 0 suggest overfitting. Moreover, FA is typically employed when many variables are associated with a factor. This said, Factor loadings show histology group one one factor and GISS on the another.
+
+### with vh:cd
+
+```{r}
+fa_result.vhcd <- fa(my.df.scaled.VHCD %>% dplyr::select(-SUBJID), nfactors = 2, rotate = "varimax")
+factor_scores.vhcd <- data.frame(fa_result.vhcd$scores)
+names(factor_scores.vhcd) <- c("MR1.VHCD", "MR2.VHCD")
+loadings.vhcd <- fa_result.vhcd$loadings
+fa_result.vhcd
+
+my.df.working <- my.df.working %>% cbind(factor_scores.vhcd) %>% mutate(DB.FA.VHCD = MR1.VHCD + MR2.VHCD)
+```
+
+Health Scores: Higher Scores are associated with high better VHCD, lower IEL Counts, and Lower GISS. Very high correlation with Disease burden metric and Vh:Cd.
+
+```{r}
+ggpairs(my.df.working %>% dplyr::select(c(2:4, 10:12)))
+```
+
+```{r}
+fa_result.cdvh <- fa(my.df.scaled.CDVH %>% dplyr::select(-SUBJID), nfactors = 2, rotate = "varimax")
+factor_scores.cdvh <- data.frame(fa_result.cdvh$scores)
+names(factor_scores.cdvh) <- c("MR1.CDVH", "MR2.CDVH")
+loadings.cdvh <- fa_result.cdvh$loadings
+fa_result.cdvh
+
+my.df.working <- my.df.working %>% cbind(factor_scores.cdvh) %>% mutate(DB.FA.CDVH = MR1.CDVH + MR2.CDVH)
+
+ggpairs(my.df.working %>% dplyr::select(c(2:4, 13:15)))
+```
+
+Disease burden metrics based on CD:VH have right skewness
+
+```{r}
+plot(my.df.working$DB.FA.VHCD, my.df.working$DB.FA.CDVH)
+hist(my.df.working$DB.FA.VHCD, breaks=50)
+hist(my.df.working$DB.FA.CDVH, breaks=50)
+```
+
+## PCA
+
+### PCA with VHCD
+
+Loadings show Histology grouping on PC1 and GISS on PC2
+
+```{r}
+# Kaiser-Meyer-Olkin factor adequacy recommended to be larger than 0.6.  We have 0.5
+KMO(cor(my.df.scaled.VHCD %>% dplyr::select(-SUBJID)))
+# This works out
+cortest.bartlett(cor(my.df.scaled.VHCD %>% dplyr::select(-SUBJID)), n = nrow(my.df))
+
+pca_result <- prcomp(x=as.matrix(my.df.scaled.VHCD %>% dplyr::select(-SUBJID)))
+pca_result$x <- data.frame(pca_result$x )
+names(pca_result$x) <- paste0(names(pca_result$x), ".VHCD")
+summary(pca_result)
+# eigenvalues
+(pca_result$sdev)^2
+print(pca_result$rotation)
+# Extract loadings
+loadings <- pca_result$rotation
+
+my.df.working <- my.df.working %>% cbind(pca_result$x[, 1:2]) %>% mutate(DB.PCA.VHCD = (PC1.VHCD+PC2.VHCD))
+
+```
+
+```{r}
+ggpairs(my.df.working %>% dplyr::select(c(2:4, 16:18)))
+```
+
+### PCA with CDVH
+
+```{r}
+# Kaiser-Meyer-Olkin factor adequacy recommended to be larger than 0.6.  We have 0.5
+KMO(cor(my.df.scaled.CDVH %>% dplyr::select(-SUBJID)))
+# This works out
+cortest.bartlett(cor(my.df.scaled.CDVH %>% dplyr::select(-SUBJID)), n = nrow(my.df))
+
+pca_result <- prcomp(x=as.matrix(my.df.scaled.CDVH %>% dplyr::select(-SUBJID)))
+pca_result$x <- data.frame(pca_result$x )
+names(pca_result$x) <- paste0(names(pca_result$x), ".CDVH")
+summary(pca_result)
+# eigenvalues
+(pca_result$sdev)^2
+print(pca_result$rotation)
+# Extract loadings
+loadings <- pca_result$rotation
+
+my.df.working <- my.df.working %>% cbind(pca_result$x[, 1:2]) %>% mutate(DB.PCA.CDVH = (PC1.CDVH+PC2.CDVH))
+
+ggpairs(my.df.working %>% dplyr::select(c(2:4, 19:21)))
+```
+
+The Disease burden scores using PCA with CD:VH are left skewed and asymmetric.
+
+## IRT
+
+Unidimensionality is not met. This suggests GISS is measuring something different than histology. Here we attempt an IRT Analysis using CDVH. Resulting Patient burden scores exhibit a small range and heaping.
+
+```{r}
+IRT.CDVH <- common.alpha.model(data.in = my.df.scaled.CDVH)
+
+PostEst.out.IRT.CDVH <- PosteriorEstimates(data.in = my.df.scaled.CDVH,
+  grid = seq(-3, 5, .1),
+  I = 3,
+  indicator = "C",
+  lin = "lin",
+  parmatrest = IRT.CDVH$parmatrix,
+  stdest = IRT.CDVH$stdmixt)
+
+my.df.working <- my.df.working %>% cbind(PostEst.out.IRT.CDVH %>% dplyr::select(esttheta))
+
+ggpairs(my.df.working %>% dplyr::select(5, 3, 4, esttheta))
+hist(my.df.working$esttheta, breaks=50)
+```
+
+```{r}
+my.df.working %>% ggplot(aes(x=DB.FA.VHCD, y= DB.FA.CDVH)) + geom_point()
+my.df.working %>% ggplot(aes(x=DB.FA.VHCD, y= DB.PCA.VHCD)) + geom_point()
+my.df.working %>% ggplot(aes(x=DB.PCA.VHCD, y= DB.PCA.CDVH)) + geom_point()
+my.df.working %>% ggplot(aes(DB.PCA.VHCD, esttheta))+ geom_point()
+```
+
+## MIRT
+
+The mirt package only deals with analysis of dichotomous and polytomous response data using unidimensional and multidimensional latent trait models under the Item Response Theory (IRT) paradigm. This is not a viable option.

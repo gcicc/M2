@@ -1,0 +1,158 @@
+---
+title: "**Accuracy of MARCS `r gsub(x=gsub(x=params$this_endpoint, pattern='All_', replacement='All (tertile) '), pattern='_', replacement=' ')`**"
+author: "MARCS Crossfunctional Team"
+date: last-modified
+date-format: "MMM D, YYYY   hh:mm"
+format: 
+  pdf:
+    header-includes: 
+      \usepackage{geometry}
+      \geometry{top=0.75in,left=0.80in,bottom=0.5in,right=0.80in}
+    include-in-header: 
+      text: |
+        \usepackage{scrlayer-scrpage}
+        \cohead[{\includegraphics[height=4cm]{images/Logo.png}}]{Association of MARCS Score Relative to Comparators}
+    embed-resources: true
+    smooth-scroll: true
+    toc: true
+    toc-location: left
+    toc-title: Contents
+    toc-depth: 3
+    number-sections: true
+    number-offset: 1
+params:
+  analysis_type: "formal type of this analysis"
+  study: "a study"
+  repo_clone: "directory where the clone is"
+  input_dir: "directory for the input"
+  output_dir: "directory for the output"
+  this_endpoint: "which of the MARCS scores to use"
+execute: 
+  echo: false
+  message: false
+  warning: false
+  tbl-cap-location: top
+editor_options: 
+  chunk_output_type: console
+---
+
+\newpage
+
+The Takeda MARCS VCE tool is a semi-automated, computer-assisted small intestine villous damage scoring device that provides an effective way to implement the per-frame CE-VAST scale and the per-region MARCS, including the calculation of the individual biomarker outputs, notably BVA using white-light video VCE examinations of patients. The use of this tool is contingent upon the availability of images obtained by a compatible capsule endoscopy device. The tool includes a marking capability that inputs VCE videos and defines regions, which output may then be used by either a manual scoring tool that facilitates manual scoring, or a machine-learning algorithm (with static code) to automate scoring. 
+
+```{=tex}
+\begin{figure}
+  \caption{Schematic Depiction of the SI and Areas Evaluated by MARCS}
+  \centering
+  \includegraphics{images/BVA.png}
+  \caption*{Burden of Villous Atrophy (BVA) is the mean of the MARCS curve in Tertile 1.}
+\end{figure}
+```
+
+Validation will be conducted in multiple clinical trials. Specifically, beginning with (i) evaluation of the CE-VAST scale on a per-frame basis, (ii) analytical validation of BVA, and (iii) preliminary assessment of clinical/biological validation, including the analysis on the following study data:
+
+```{=tex}
+\begin{figure}
+  \caption{Study Calendar}
+  \centering
+  \includegraphics{images/Study_Design.png}
+  \caption*{Scheduled visits identify when data of various types is collected.}
+\end{figure}
+```
+
+\newpage
+
+```{r analysis, fig.align='center', echo=FALSE, warning=FALSE, error=FALSE}
+study <- params$study
+repo_clone <- params$repo_clone
+input_dir <- params$input_dir
+output_dir <- params$output_dir
+this_endpoint <- params$this_endpoint
+
+source(paste0(repo_clone, "/Shared-Content/preamble.R"))
+functions_path <- path(repo_clone, "Analytical-Validation", "Accuracy", "functions")
+r_files <- list.files(path=functions_path, pattern="\\.R$", full.names=TRUE)
+for (file in r_files) {
+  source(file)
+}
+table_path <- path(output_dir, "tables")
+dir.create(table_path)
+figure_path <- path(output_dir, "figures")
+dir.create(figure_path)
+
+results.ML <- list()
+
+form_merged_data_sets_output <- form_merged_data_sets(analysis_type=params$analysis_type, study=study, this_endpoint=this_endpoint, output_dir=output_dir)
+
+# Initialize storage lists
+
+# merged_data_sets is a list containing one entry for each IQ level.
+# for (i in 1:length(form_merged_data_sets_output$merged_data_sets)) {
+i <- 1
+  merged_data_set <- form_merged_data_sets_output$merged_data_sets[[i]]
+  label.name <- names(form_merged_data_sets_output$merged_data_sets)[i]
+  
+  # This analysis requires both ML and Human data to be present.
+  analysis.data.in.ML <- merged_data_set$merged_data.ML$merged_data.ML.full %>% mutate(label.name=label.name)
+  CDSD <- read_excel(path(input_base_dir,"TAK-062-2001/Data_from_Karthik_01_08_2025/CDSD_daily_data.xlsx"))
+
+  results <- main_analysis(analysis.data.in=analysis.data.in.ML, CDSD.in = CDSD)
+  
+  
+    results.ML[[length(results.ML)+1]] <- results
+    names(results.ML)[length(results.ML)] <- label.name
+  # }
+
+
+```
+
+## Executive Summary
+
+## Stability Statistics 
+```{r}
+stability.stats.report(data.in = for.return$stability_stats)
+```
+
+
+## Cluster plots for GI Symptoms
+
+```{r}
+cluster.plots(data.in = for.return$CDSD.cluster)
+```
+
+## Cluster plots for MARCS Scores
+
+```{r}
+cluster.plots(data.in = for.return$VCE.cluster)
+```
+
+```{r}
+for.return$symptom.summary$symptoms_by_epoch[[1]]$plot+ labs(caption="Improvers: Clusters: 1,3")
+for.return$symptom.summary$symptoms_by_epoch[[2]]$plot + labs(caption="Improvers: Cluster 3")
+for.return$symptom.summary$symptoms_by_epoch[[3]]$plot + labs(caption="Improvers: Clusters: 1,3")
+for.return$symptom.summary$symptoms_by_epoch[[4]]$plot + labs(caption="Improvers: Clusters: 3")
+for.return$symptom.summary$symptoms_by_epoch[[5]]$plot + labs(caption="Improvers: Clusters: 1,4")
+
+```
+
+```{r}
+for.return$symptom.summary$n.distinct
+for.return$symptom.summary$symptom.improver.report
+for.return$symptom.summary$t.test.report
+```
+
+
+```{r}
+for.return$symtom.improver.report
+```
+
+
+
+\newpage
+## Appendix: Provenance {.unnumbered}
+```{r provenance, fig.align='center', echo=FALSE}
+cat(paste("Analysis executed by", system2("whoami", stdout=TRUE, stderr=TRUE)))
+cat(str_wrap(paste("Results derived from", form_merged_data_sets_output$provenance), width=50, whitespace_only=FALSE))
+setwd(repo_clone)
+cat(str_wrap(paste("Code used for analysis was", git2r::status(repo=".", staged=TRUE, unstaged=TRUE, untracked=TRUE, ignored=FALSE, all_untracked=FALSE)), width=50, whitespace_only=FALSE))
+```

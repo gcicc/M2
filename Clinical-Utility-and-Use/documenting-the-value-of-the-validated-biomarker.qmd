@@ -1,0 +1,103 @@
+---
+title: "Analysis Module: Documenting the Value of the Validated Biomarkers"
+format: pdf
+toc: true
+number-sections: true
+params:
+  study: "a study"
+  repo_clone: "directory where the clone is"
+  input_dir: "directory for the input"
+  output_dir: "directory for the output"
+execute: 
+  echo: false
+  message: false
+  warning: false
+  tbl-cap-location: top
+editor: visual
+---
+
+```{r notes-and-reminders}
+# render with printcode: TRUE will result in webshot2::webshot error  
+# render with printcode: FALSE will result in pdf
+# To render graphics separately run all code chunks
+```
+
+```{r packages-and-source}
+study <- params$study
+repo_clone <- params$repo_clone
+input_dir <- params$input_dir
+output_dir <- params$output_dir 
+source(paste0(repo_clone,"/Shared-Content/preamble.R"))
+table_path <- path(output_dir,"tables")
+dir.create(table_path)
+figure_path <- path(output_dir,"figures")
+dir.create(figure_path)
+```
+
+## Analysis Inputs: Prepared data following ETL. 
+```{r ETL}
+if (study=="Milan") {
+  demog_df <- demog_milan_etl()
+  histology_df <- histology_milan_etl()
+  symptoms_df <- symptoms_milan_etl()
+  vce_df <- vce_milan_etl()
+} else if (study=="Phase0") {
+  demog_df <- demog_phase0_etl()
+  histology_df <- histology_phase0_etl()
+  symptoms_df <- symptoms_phase0_etl()
+  vce_df <- vce_phase0_etl()
+} else if (study=="TAK-062-2001") {
+  demog_df <- demog_062_2001_etl()
+  histology_df <- histology_062_2001_etl()
+  symptoms_df <- symptoms_062_2001_etl()
+  vce_df <- vce_062_2001_etl()
+} else if (study=="Mock-Study") {
+  demog_df <- demog_mock_etl()
+  histology_df <- histology_mock_etl()
+  symptoms_df <- symptoms_mock_etl()
+  vce_df <- vce_mock_etl()
+} else {
+  print("Logic error: unsupported study")
+}
+```
+
+::: callout-note
+-   Inputs discovered (with a list of the file names with full qualification, how many rows were read, how many columns)
+-   Post-join data processed (list of rows and columns post-join)
+-   Descriptive statistics of the post-join data (see note on demographics file below)
+:::
+
+## Derived data sets
+
+## Protocol Ordered Output
+
+We wish to establish the clinical utility of S (MARCS BVA) by demonstrating its similarity to the reference T (the composited co-primary histology and symptomatology, according to the method outlined in Section 6.3.3.1) in terms of its ability to identify a similar proportion of true responders by S with the same sample size as needed for T, or similar proportion of true responders with a similar (or potentially smaller) sample size for S than would be needed to achieve this using T.
+
+Assuming that the scores of the treatment arm are lower than the scores of the placebo arm, an overlapping range can be defined as the values between the 25th percentile of the scores of the untreated and the 75th percentile of the scores of the treated patients, for each of the reference and the surrogate procedures. We anticipate that the reference procedure distinguishes efficiently the two groups of treatment versus placebo, resulting in a high proportion of patients with scores in the non-overlapping range. We access the similarity of the surrogate procedure by comparing its corresponding proportion of patients in the non-overlapping range of the scores S. Consider the total sample of n patients of both treatment and placebo arms. Each patient contributes a pair of dichotomous responses (Yes or No) which indicate if the reference and the surrogate procedures’ scores fall in their corresponding non-overlapping ranges. The probabilities of the four resulting types of matched observations may be classified in a 2x2 table as follows:
+
+```{r}
+
+```
+
+The probabilities p_T and p_S represent the discriminatory ability between treated and untreated patients of the reference and surrogate procedures respectively. The difference 〖p_S – p〗\_T = p_10- p_01 provides a measure for assessment of the non-inferioritysimilarity between the two procedures. A 95% confidence interval for this difference will be provided.
+
+## Description of Candidate Biomarker
+
+![](images/BVA-slide.png){fig-align="center" width="6.5in"}
+
+\newpage
+
+## Acceptance Criteria
+
+![](images/Acceptance%20Criteria.png){fig-align="center"}
+
+## 6.4.2 Power for comparing treatment effects
+
+```{r}
+
+expand.grid(b=seq(.3,1,.1), n=seq(50,300,1), n_t = c(50, 100, 125)) %>%
+  mutate(test.stat = b^2/sqrt(1/(n_t) + 1/(n-n_t))) %>%
+  mutate(power = pt(q=test.stat, df=n-2)) %>% filter(test.stat!=0) %>%
+  ggplot(aes(x=n, y=power, group=factor(b), color=factor(b)))+geom_line() + facet_wrap(~n_t, scale="free_x") +
+  labs(title="Power as a function of total sample size for possible true values of the treatment effect", color="Treatment effect") + theme(legend.position = "bottom")
+```
