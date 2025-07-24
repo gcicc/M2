@@ -1,0 +1,43 @@
+# MARCS Validation Analysis Configuration
+# This file manages user-specific settings and eliminates manual code switching
+
+default:
+  studies: 
+    - "Mock-Study"
+    - "Sheffield"
+    - "Milan"
+    - "Phase0"
+    - "TAK-062-2001"
+  
+  chrome_paths:
+    windows: "C:/Program Files/Google/Chrome/Application/chrome.exe"
+    mac: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    linux: "/usr/bin/google-chrome"
+  
+  global_packages:
+    - "R.utils"
+    - "fs"
+    - "tictoc"
+    - "this.path"
+    - "tools"
+    - "goft"
+    - "quarto"
+
+users:
+  eri7441:
+    local_sync_dir: "C:/Users/eri7441/OneDrive - Takeda/Documents - MARCS/DA"
+    repo_clone: "C:/ForGit/MARCS"
+    initials: "GC"
+    platform: "windows"
+    
+  andre:
+    local_sync_dir: "C:/Users/andre/MARCS-Validation-Data"
+    repo_clone: "C:/BBMSC_ROOT/home/GitHub/Takeda/MARCS"
+    initials: "AB"
+    platform: "windows"
+    
+  ukd1812:
+    local_sync_dir: "/Users/ukd1812/Library/CloudStorage/OneDrive-SharedLibraries-Takeda/MARCS-Validation-Data - Documents"
+    repo_clone: "/Users/ukd1812/Library/CloudStorage/OneDrive-Takeda/01_Projects/05_TAK-062-2001/MARCS_VCE_Program/Data_Analysis/Analysis_Modules"
+    initials: "ST"
+    platform: "mac"

@@ -1,34 +1,42 @@
-# Global-Config: Most basic level of configuration for MARCS validation analyses. 
-# Note that it is intentional that this is not called programmatically, but only manually,
-# as it is generally called infrequently and only when the programmer wants to do so 
-# explicitly.
+# Global-Config: Configuration management for MARCS validation analyses
+# 
+# MODERNIZED: This file now uses the automated configuration system to eliminate
+# manual user switching. Configuration is loaded automatically based on
+# the current system user from config.yml.
+#
+# NEW WORKFLOW:
+# 1. User configurations are stored in config.yml
+# 2. System automatically detects current user (Sys.info()[["user"]])
+# 3. Loads appropriate configuration without manual code changes
+# 4. Validates paths and sets up Chrome environment
+#
+# ADDING NEW USERS:
+# Simply add a new user section to config.yml - no code changes needed!
+#
+# LEGACY MANUAL SWITCHING (NO LONGER NEEDED):
+# The old manual commenting/uncommenting system has been replaced.
+# Previous manual user blocks have been removed and are now handled
+# automatically via the config.yml file.
 
-local_sync_dir <- "C:/Users/eri7441/OneDrive - Takeda/Documents - MARCS/DA"
-repo_clone <- paste0("C:/ForGit/MARCS")
-Sys.setenv(CHROMOTE_CHROME="C:/Program Files/Google/Chrome/Application/chrome.exe")
-initials <- "GC"
+# Load configuration management system
+source(file.path("Shared-Content", "config-management.R"))
 
-# local_sync_dir <- "C:/Users/andre/MARCS-Validation-Data"
-# repo_clone <- "C:/BBMSC_ROOT/home/GitHub/Takeda/MARCS"
-# Sys.setenv(CHROMOTE_CHROME="C:/Program Files/Google/Chrome/Application/chrome.exe")
-# initials <- "AB"
+# Initialize configuration automatically
+# This replaces all the manual user switching with automatic detection
+marcs_config <- initialize_marcs_config()
 
-# local_sync_dir <- "/Users/ukd1812/Library/CloudStorage/OneDrive-SharedLibraries-Takeda/MARCS-Validation-Data - Documents"
-# repo_clone <- paste0("/Users/ukd1812/Library/CloudStorage/OneDrive-Takeda/01_Projects/05_TAK-062-2001/MARCS_VCE_Program/Data_Analysis/Analysis_Modules")
-# Sys.setenv(CHROMOTE_CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
-# initials <- "ST"  
+# Extract main configuration variables (for backward compatibility)
+local_sync_dir <- marcs_config$local_sync_dir
+repo_clone <- marcs_config$repo_clone
+initials <- marcs_config$initials
+studies <- marcs_config$studies
 
-studies <- c(
-  "Mock-Study",
-  "Sheffield",
-  "Milan",
-  "Phase0",
-  "TAK-062-2001"
-)
-study <- studies[5] # note this is a convenience when debugging specific analysis types on specific study
+# Set default study for debugging (can be overridden)
+study <- studies[5] # TAK-062-2001
 
 # The main list is within preamble.R. Here, only the small subset needed to get into Quarto.
-global_pckgs = c("R.utils","fs","tictoc","this.path","tools","goft","quarto")#,"tinytex")
+# Added 'config' and 'yaml' packages for new configuration system
+global_pckgs = c("R.utils","fs","tictoc","this.path","tools","goft","quarto","config","yaml")#,"tinytex")
 
 is.installed <- function(pckg) {
   is.element(pckg,installed.packages()[,1])
