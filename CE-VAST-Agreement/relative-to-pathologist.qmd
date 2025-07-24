@@ -40,108 +40,69 @@ The analysis documented here is also performed on other studies undertaken by th
 
 ```{r analysis, echo=FALSE, warning=FALSE, error=FALSE}
 source(file.path(params$repo_clone, "Shared-Content", "setup-analysis-environment.R"))
+source(file.path(params$repo_clone, "Shared-Content", "purrr-helpers.R"))
 analysis_ctx <- setup_analysis_environment(params, "CE-VAST-Agreement")
 
 form_merged_data_sets_output <- form_merged_data_sets(analysis_type=params$analysis_type, study=study, this_endpoint=this_endpoint, output_dir=output_dir)
 
-kappa.report.ML <- list()
-analysis.data.in_ext.ML <- list()
-kappa.report.ML.byRandStat <- list()
-kappa.report.ML.byPairing <- list()
-kappa.report.ML.byArm <- list()
+# Custom data preparation for CE-VAST Agreement analysis
+prepare_cevast_data <- function(merged_data_set, label_name) {
+  # Only use ML data for this analysis
+  merged_data_set$merged_data.ML$merged_data.ML.full
+}
 
-kappaplot.ML <- list()
-kappaplot.ML.byRandStat <- list()
-kappaplot.ML.byPairing <- list()
-kappaplot.ML.byArm <- list()
+# Custom analysis wrapper to handle CE-VAST specific requirements
+cevast_analysis_wrapper <- function(analysis_data, reader_type = "ML") {
+  results <- main_analysis(analysis.data.in = analysis_data, reader_type = reader_type)
+  
+  # Save extended analysis data to CSV as required
+  write.csv(results$analysis.data.in_ext, 
+           path(output_dir, paste0("8 analysis.data.in_ext-", reader_type, "-", 
+                                   analysis_data$label.name[1], ".csv")), 
+           row.names = FALSE)
+  
+  return(results)
+}
 
+# Execute analysis using functional approach for ML data only
+ml_results <- process_merged_data_sets(
+  form_merged_data_sets_output,
+  cevast_analysis_wrapper,
+  prepare_cevast_data,
+  reader_type = "ML"
+)
+
+# Extract results into the expected named lists for downstream processing
+kappa.report.ML <- map(ml_results, ~ .x$kappa.report)
+analysis.data.in_ext.ML <- map(ml_results, ~ .x$analysis.data.in_ext)
+kappaplot.ML <- map(ml_results, ~ .x$kappaplot)
+
+# Extract stratified results (only if they exist)
+kappa.report.ML.byRandStat <- map(ml_results, ~ .x$kappa.report.byRandStat) %>% 
+  discard(is.null)
+kappaplot.ML.byRandStat <- map(ml_results, ~ .x$kappaplot.byRandStat) %>% 
+  discard(is.null)
+
+kappa.report.ML.byPairing <- map(ml_results, ~ .x$kappa.report.byPairing) %>% 
+  discard(is.null)
+kappaplot.ML.byPairing <- map(ml_results, ~ .x$kappaplot.byPairing) %>% 
+  discard(is.null)
+
+kappa.report.ML.byArm <- map(ml_results, ~ .x$kappa.report.byArm) %>% 
+  discard(is.null)
+kappaplot.ML.byArm <- map(ml_results, ~ .x$kappaplot.byArm) %>% 
+  discard(is.null)
+
+# Initialize empty Human lists (not used in this analysis but expected by downstream code)
 kappa.report.Human <- list()
 kappa.report.Human.byRandStat <- list()
 kappa.report.Human.byPairing <- list()
 kappa.report.Human.byArm <- list()
-
 kappaplot.Human <- list()
 analysis.data.in_ext.Human <- list()
 kappaplot.Human.byRandStat <- list()
 kappaplot.Human.byPairing <- list()
 kappaplot.Human.byArm <- list()
-
-# merged_data_sets is a list containing one entry for each IQ level.
-for (i in 1:length(form_merged_data_sets_output$merged_data_sets)) { 
-  merged_data_set <- form_merged_data_sets_output$merged_data_sets[[i]]
-  label.name <- names(form_merged_data_sets_output$merged_data_sets)[i]
-  # Set a loop
-  for (reader_type in c("ML")){
-    if (reader_type == "ML") {
-      analysis.data.in <- merged_data_set$merged_data.ML$merged_data.ML.full
-    } else if (nrow(merged_data_set$merged_data.Human$merged_data.Human.full) > 10) {
-      analysis.data.in <- merged_data_set$merged_data.Human$merged_data.Human.full
-    } else {
-      next
-    }
-    
-    results <- main_analysis(analysis.data.in=analysis.data.in, reader_type=reader_type)
-    write.csv(results$analysis.data.in_ext, path(output_dir, paste0("8 analysis.data.in_ext-", reader_type, "-", label.name, ".csv")), row.names=FALSE)
-
-    if (reader_type == "ML") {
-      kappa.report.ML[[length(kappa.report.ML)+1]] <- results$kappa.report
-      names(kappa.report.ML)[length(kappa.report.ML)] <- label.name
-      analysis.data.in_ext.ML[[length(analysis.data.in_ext.ML)+1]] <- results$analysis.data.in_ext
-      names(analysis.data.in_ext.ML)[length(analysis.data.in_ext.ML)] <- label.name
-      kappaplot.ML[[length(kappaplot.ML)+1]] <- results$kappaplot
-      names(kappaplot.ML)[length(kappaplot.ML)] <- label.name
-      
-      if (!is.null(results$kappa.report.byRandStat)) {
-        kappa.report.ML.byRandStat[[length(kappa.report.ML.byRandStat)+1]] <- results$kappa.report.byRandStat
-        names(kappa.report.ML.byRandStat)[length(kappa.report.ML.byRandStat)] <- label.name
-        kappaplot.ML.byRandStat[[length(kappaplot.ML.byRandStat)+1]] <- results$kappaplot.byRandStat
-        names(kappaplot.ML.byRandStat)[length(kappaplot.ML.byRandStat)] <- label.name
-      }
-     
-      if (!is.null(results$kappaplot.byPairing)) {
-        kappa.report.ML.byPairing[[length(kappa.report.ML.byPairing)+1]] <- results$kappa.report.byPairing
-        names(kappa.report.ML.byPairing)[length(kappa.report.ML.byPairing)] <- label.name
-        kappaplot.ML.byPairing[[length(kappaplot.ML.byPairing)+1]] <- results$kappaplot.byPairing
-        names(kappaplot.ML.byPairing)[length(kappaplot.ML.byPairing)] <- label.name
-      }
-      
-       if (!is.null(results$kappaplot.byArm)) {
-        kappa.report.ML.byArm[[length(kappa.report.ML.byArm)+1]] <- results$kappa.report.byArm
-        names(kappa.report.ML.byArm)[length(kappa.report.ML.byArm)] <- label.name
-        kappaplot.ML.byArm[[length(kappaplot.ML.byArm)+1]] <- results$kappaplot.byArm
-        names(kappaplot.ML.byArm)[length(kappaplot.ML.byArm)] <- label.name
-      }
-    } else {
-      kappa.report.Human[[length(kappa.report.Human)+1]] <- results$kappa.report
-      names(kappa.report.Human)[length(kappa.report.Human)] <- label.name
-      analysis.data.in_ext.Human[[length(analysis.data.in_ext.Human)+1]] <- results$analysis.data.in_ext
-      names(analysis.data.in_ext.Human)[length(analysis.data.in_ext.Human)] <- label.name
-      kappaplot.Human[[length(kappaplot.Human)+1]] <- results$kappaplot
-      names(kappaplot.Human)[length(kappaplot.Human)] <- label.name
-      
-      if (!is.null(results$kappa.report.byRandStat)) {
-        kappa.report.Human.byRandStat[[length(kappa.report.Human.byRandStat)+1]] <- results$kappa.report.byRandStat
-        names(kappa.report.Human.byRandStat)[length(kappa.report.Human.byRandStat)] <- label.name
-        kappaplot.Human.byRandStat[[length(kappaplot.Human.byRandStat)+1]] <- results$kappaplot.byRandStat
-        names(kappaplot.Human.byRandStat)[length(kappaplot.Human.byRandStat)] <- label.name
-      }
-      
-      if (!is.null(results$kappa.report.byPairing)) {
-        kappa.report.Human.byPairing[[length(kappa.report.Human.byPairing)+1]] <- results$kappa.report.byPairing
-        names(kappa.report.Human.byPairing)[length(kappa.report.Human.byPairing)] <- label.name
-        kappaplot.Human.byPairing[[length(kappaplot.Human.byPairing)+1]] <- results$kappaplot.byPairing
-        names(kappaplot.Human.byPairing)[length(kappaplot.Human.byPairing)] <- label.name
-      }
-      
-      if (!is.null(results$kappa.report.byArm)) {
-        kappa.report.Human.byArm[[length(kappa.report.Human.byArm)+1]] <- results$kappa.report.byArm
-        names(kappa.report.Human.byArm)[length(kappa.report.Human.byArm)] <- label.name
-        kappaplot.Human.byArm[[length(kappaplot.Human.byArm)+1]] <- results$kappaplot.byArm
-        names(kappaplot.Human.byArm)[length(kappaplot.Human.byArm)] <- label.name
-      }
-    }
-  } # ML or Human
-} # for each IQ level
 ```
 
 ## Executive Summary for Machine Learning Reads

@@ -38,46 +38,19 @@ Validation will be conducted in multiple clinical trials. Specifically, beginnin
 
 ```{r analysis, fig.align='center', echo=FALSE, warning=FALSE, error=FALSE}
 source(file.path(params$repo_clone, "Shared-Content", "setup-analysis-environment.R"))
+source(file.path(params$repo_clone, "Shared-Content", "purrr-helpers.R"))
 analysis_ctx <- setup_analysis_environment(params, "Precision")
-
-results.ML <- list()
 
 form_merged_data_sets_output <- form_merged_data_sets(analysis_type=params$analysis_type, study=study, this_endpoint=this_endpoint, output_dir=output_dir)
 
-
-# Initialize storage lists
-
-# merged_data_sets is a list containing one entry for each IQ level.
-for (i in 1:length(form_merged_data_sets_output$merged_data_sets)) {
-  merged_data_set <- form_merged_data_sets_output$merged_data_sets[[i]]
-  label.name <- names(form_merged_data_sets_output$merged_data_sets)[i]
-  
-  reader_type <- "ML"
-  if(study != "Sheffield") {
-    # Assuming this is TAK-062-2001
-    # 264 rows
-  analysis.data.in.temp <- merged_data_set$merged_data.ML$merged_data.ML.full %>% mutate(label.name=label.name)
-  # 123 rows
-  analysis.data.in.temp <- analysis.data.in.temp %>% dplyr::filter(VISIT=="VISIT 2 - Week -4")
-  # We have 14 with retest flag = TRUE
-  table(analysis.data.in.temp$Retest.Flag)
-  # These 14 also have matches
-  analysis.data.in.Retest.Flag <- analysis.data.in.temp %>% filter(Retest.Flag==TRUE)
-  analysis.fata.in.Retest.Flag.TRUE.SUBJID <- analysis.data.in.Retest.Flag$SUBJID
-  analysis.fata.in.Retest.Flag.FALSE.SUBJID <- analysis.data.in.temp %>% dplyr::filter(Retest.Flag==FALSE & (SUBJID %in% analysis.fata.in.Retest.Flag.TRUE.SUBJID))
-  analysis.data.in <- bind_rows(analysis.data.in.Retest.Flag, analysis.fata.in.Retest.Flag.FALSE.SUBJID)
-  
-  } else {
-      analysis.data.in.ML <- merged_data_set$merged_data.ML$merged_data.ML.full %>% mutate(label.name=label.name) %>% filter(!is.na(BVA))
-      analysis.data.in.Human <- merged_data_set$merged_data.Human$merged_data.Human.full %>% mutate(label.name=label.name) %>% filter(!is.na(BVA))
-      analysis.data.in <- bind_rows(analysis.data.in.ML, analysis.data.in.Human)
-    }
-  
-  results <- main_analysis(analysis.data.in=analysis.data.in, reader_type=reader_type, this_endpoint=this_endpoint)
-  results.ML[[length(results.ML)+1]] <- results
-  names(results.ML)[length(results.ML)] <- label.name
-  
-}
+# Modernized functional approach using purrr helpers
+results.ML <- process_merged_data_sets(
+  form_merged_data_sets_output,
+  main_analysis,
+  prepare_precision_data,
+  reader_type = "ML",
+  this_endpoint = this_endpoint
+)
 
 
 ```

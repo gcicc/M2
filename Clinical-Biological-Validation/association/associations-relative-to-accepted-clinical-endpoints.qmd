@@ -40,6 +40,7 @@ The analysis documented here is also performed on other studies undertaken by th
 
 ```{r analysis, fig.align='center', echo=FALSE, warning=FALSE, error=FALSE}
 source(file.path(params$repo_clone, "Shared-Content", "setup-analysis-environment.R"))
+source(file.path(params$repo_clone, "Shared-Content", "purrr-helpers.R"))
 analysis_ctx <- setup_analysis_environment(params, "association", "Clinical-Biological-Validation")
 
 # Note: Symptom-window-analyses.R can't be run due to long filenames
@@ -53,252 +54,90 @@ lower.triangle_func_results<-lower.triangle_func(df.in=form_merged_data_sets_out
 
 time.course.plots_results <- time.course.plots(df.in=form_merged_data_sets_output$global_analysis_set_out, reader_type="ML", this_endpoint=this_endpoint)
 
-cor.report.ML <- list()
-cor.report.ML.byAggHist <- list()
-cor.report.ML.byMO <- list()
-cor.report.ML.byqM <- list()
-cor.report.ML.byRandStat <- list()
-cor.report.ML.byPairing <- list()
-cor.report.ML.byArm <- list()
+# Modernized functional approach using purrr helpers
+association_results <- process_association_analysis(
+  form_merged_data_sets_output,
+  main_analysis,
+  reader_types = c("ML", "Human"),
+  this_endpoint = this_endpoint,
+  runMI = FALSE
+)
 
-scatterplots.ML <- list()
-scatterplots.ML.byAggHist <- list()
-scatterplots.ML.byMO <- list()
-scatterplots.ML.byqM <- list()
-scatterplots.ML.byRandStat <- list()
-scatterplots.ML.byPairing <- list()
-scatterplots.ML.byArm <- list()
+# Extract ML results
+ml_results <- association_results$ML
+cor.report.ML <- ml_results$cor.report
+cor.report.ML.byAggHist <- ml_results$cor.report.byAggHist
+cor.report.ML.byMO <- ml_results$cor.report.byMO
+cor.report.ML.byqM <- ml_results$cor.report.byqM
+cor.report.ML.byRandStat <- ml_results$cor.report.byRandStat
+cor.report.ML.byPairing <- ml_results$cor.report.byPairing
+cor.report.ML.byArm <- ml_results$cor.report.byArm
 
-roc.report.ML <- list()
-roc.report.ML.byAggHist <- list()
-roc.report.ML.byMO <- list()
-roc.report.ML.byqM <- list()
-roc.report.ML.byRandStat <- list()
-roc.report.ML.byPairing <- list()
-roc.report.ML.byArm <- list()
+scatterplots.ML <- ml_results$scatterplots
+scatterplots.ML.byAggHist <- ml_results$scatterplots.byAggHist
+scatterplots.ML.byMO <- ml_results$scatterplots.byMO
+scatterplots.ML.byqM <- ml_results$scatterplots.byqM
+scatterplots.ML.byRandStat <- ml_results$scatterplots.byRandStat
+scatterplots.ML.byPairing <- ml_results$scatterplots.byPairing
+scatterplots.ML.byArm <- ml_results$scatterplots.byArm
 
-roc.figure.ML <- list()
-roc.figure.ML.byAggHist <- list()
-roc.figure.ML.byMO <- list()
-roc.figure.ML.byqM <- list()
-roc.figure.ML.byRandStat <- list()
-roc.figure.ML.byPairing <- list()
-roc.figure.ML.byArm <- list()
-sumstats.ML.byARM <- list()
-analysis.data.in.ML <- list()
-cross.sectional.tests.ML <- list()
+roc.report.ML <- ml_results$roc.report
+roc.report.ML.byAggHist <- ml_results$roc.report.byAggHist
+roc.report.ML.byMO <- ml_results$roc.report.byMO
+roc.report.ML.byqM <- ml_results$roc.report.byqM
+roc.report.ML.byRandStat <- ml_results$roc.report.byRandStat
+roc.report.ML.byPairing <- ml_results$roc.report.byPairing
+roc.report.ML.byArm <- ml_results$roc.report.byArm
 
-cor.report.Human <- list()
-cor.report.Human.byAggHist <- list()
-cor.report.Human.byMO <- list()
-cor.report.Human.byqM <- list()
-cor.report.Human.byRandStat <- list()
-cor.report.Human.byPairing <- list()
-cor.report.Human.byArm <- list()
+roc.figure.ML <- ml_results$roc.figure
+roc.figure.ML.byAggHist <- ml_results$roc.figure.byAggHist
+roc.figure.ML.byMO <- ml_results$roc.figure.byMO
+roc.figure.ML.byqM <- ml_results$roc.figure.byqM
+roc.figure.ML.byRandStat <- ml_results$roc.figure.byRandStat
+roc.figure.ML.byPairing <- ml_results$roc.figure.byPairing
+roc.figure.ML.byArm <- ml_results$roc.figure.byArm
+sumstats.ML.byARM <- ml_results$sumstats
+analysis.data.in.ML <- ml_results$analysis.data
+cross.sectional.tests.ML <- ml_results$cross.sectional.tests
 
-scatterplots.Human <- list()
-scatterplots.Human.byAggHist <- list()
-scatterplots.Human.byMO <- list()
-scatterplots.Human.byqM <- list()
-scatterplots.Human.byRandStat <- list()
-scatterplots.Human.byPairing <- list()
-scatterplots.Human.byArm <- list()
+# Extract Human results
+human_results <- association_results$Human
+cor.report.Human <- human_results$cor.report
+cor.report.Human.byAggHist <- human_results$cor.report.byAggHist
+cor.report.Human.byMO <- human_results$cor.report.byMO
+cor.report.Human.byqM <- human_results$cor.report.byqM
+cor.report.Human.byRandStat <- human_results$cor.report.byRandStat
+cor.report.Human.byPairing <- human_results$cor.report.byPairing
+cor.report.Human.byArm <- human_results$cor.report.byArm
 
-roc.report.Human <- list()
-roc.report.Human.byAggHist <- list()
-roc.report.Human.byMO <- list()
-roc.report.Human.byqM <- list()
-roc.report.Human.byRandStat <- list()
-roc.report.Human.byArm <- list()
-roc.report.Human.byPairing <- list()
+scatterplots.Human <- human_results$scatterplots
+scatterplots.Human.byAggHist <- human_results$scatterplots.byAggHist
+scatterplots.Human.byMO <- human_results$scatterplots.byMO
+scatterplots.Human.byqM <- human_results$scatterplots.byqM
+scatterplots.Human.byRandStat <- human_results$scatterplots.byRandStat
+scatterplots.Human.byPairing <- human_results$scatterplots.byPairing
+scatterplots.Human.byArm <- human_results$scatterplots.byArm
 
-roc.figure.Human <- list()
-roc.figure.Human.byAggHist <- list()
-roc.figure.Human.byMO <- list()
-roc.figure.Human.byqM <- list()
-roc.figure.Human.byRandStat <- list()
-roc.figure.Human.byPairing <- list()
-roc.figure.Human.byArm <- list()
-sumstats.Human.byARM <- list()
-analysis.data.in.Human<- list()
-cross.sectional.tests.Human <- list()
+roc.report.Human <- human_results$roc.report
+roc.report.Human.byAggHist <- human_results$roc.report.byAggHist
+roc.report.Human.byMO <- human_results$roc.report.byMO
+roc.report.Human.byqM <- human_results$roc.report.byqM
+roc.report.Human.byRandStat <- human_results$roc.report.byRandStat
+roc.report.Human.byArm <- human_results$roc.report.byArm
+roc.report.Human.byPairing <- human_results$roc.report.byPairing
 
-# merged_data_sets is a list containing one entry for each IQ level.
-for (i in 1:length(form_merged_data_sets_output$merged_data_sets)) {
-  merged_data_set <- form_merged_data_sets_output$merged_data_sets[[i]]
-  label.name <- names(form_merged_data_sets_output$merged_data_sets)[i]
-  # Set a loop
-  for (reader_type in c("ML", "Human")) {
-    if (reader_type == "ML") {
-      analysis.data.in <- merged_data_set$merged_data.ML$merged_data.ML.full %>% mutate(label.name=label.name)
-    } else if (nrow(merged_data_set$merged_data.Human$merged_data.Human.full) > 10) {
-      analysis.data.in <- merged_data_set$merged_data.Human$merged_data.Human.full %>% mutate(label.name=label.name)
-    } else {
-      next
-    }
+roc.figure.Human <- human_results$roc.figure
+roc.figure.Human.byAggHist <- human_results$roc.figure.byAggHist
+roc.figure.Human.byMO <- human_results$roc.figure.byMO
+roc.figure.Human.byqM <- human_results$roc.figure.byqM
+roc.figure.Human.byRandStat <- human_results$roc.figure.byRandStat
+roc.figure.Human.byPairing <- human_results$roc.figure.byPairing
+roc.figure.Human.byArm <- human_results$roc.figure.byArm
+sumstats.Human.byARM <- human_results$sumstats
+analysis.data.in.Human <- human_results$analysis.data
+cross.sectional.tests.Human <- human_results$cross.sectional.tests
 
-    results <- main_analysis(analysis.data.in=analysis.data.in, reader_type=reader_type, this_endpoint=this_endpoint, runMI = FALSE)
-
-    if (reader_type == "ML") {
-      cor.report.ML[[length(cor.report.ML) + 1]] <- results$cor.report
-      names(cor.report.ML)[length(cor.report.ML)] <- label.name
-      scatterplots.ML[[length(scatterplots.ML) + 1]] <- results$scatterplots
-      names(scatterplots.ML)[length(scatterplots.ML)] <- label.name
-      roc.report.ML[[length(roc.report.ML) + 1]] <- results$roc.report
-      names(roc.report.ML)[length(roc.report.ML)] <- label.name
-      roc.figure.ML[[length(roc.figure.ML) + 1]] <- results$roc.figure
-      names(roc.figure.ML)[length(roc.figure.ML)] <- label.name
-      sumstats.ML.byARM[[length(sumstats.ML.byARM) + 1]] <- results$sumstats
-      names(sumstats.ML.byARM)[length(sumstats.ML.byARM)] <- label.name
-      analysis.data.in.ML[[length(analysis.data.in.ML) + 1]] <- results$analysis.data
-      names(analysis.data.in.ML)[length(analysis.data.in.ML)] <- label.name
-      cross.sectional.tests.ML[[length(cross.sectional.tests.ML) + 1]] <- results$cross.sectional.tests
-      names(cross.sectional.tests.ML)[length(cross.sectional.tests.ML)] <- label.name
-      if (!is.null(results$cor.report.byAggHist)) {
-        cor.report.ML.byAggHist[[length(cor.report.ML.byAggHist) + 1]] <- results$cor.report.byAggHist
-        names(cor.report.ML.byAggHist)[length(cor.report.ML.byAggHist)] <- label.name
-        scatterplots.ML.byAggHist[[length(scatterplots.ML.byAggHist) + 1]] <- results$scatterplots.byAggHist
-        names(scatterplots.ML.byAggHist)[length(scatterplots.ML.byAggHist)] <- label.name
-        roc.report.ML.byAggHist[[length(roc.report.ML.byAggHist) + 1]] <- results$roc.report.byAggHist
-        names(roc.report.ML.byAggHist)[length(roc.report.ML.byAggHist)] <- label.name
-        roc.figure.ML.byAggHist[[length(roc.figure.ML.byAggHist) + 1]] <- results$roc.figure.byAggHist
-        names(roc.figure.ML.byAggHist)[length(roc.figure.ML.byAggHist)] <- label.name
-      }
-
-      if (!is.null(results$cor.report.byMO)) {
-        cor.report.ML.byMO[[length(cor.report.ML.byMO) + 1]] <- results$cor.report.byMO
-        names(cor.report.ML.byMO)[length(cor.report.ML.byMO)] <- label.name
-        scatterplots.ML.byMO[[length(scatterplots.ML.byMO) + 1]] <- results$scatterplots.byMO
-        names(scatterplots.ML.byMO)[length(scatterplots.ML.byMO)] <- label.name
-        roc.report.ML.byMO[[length(roc.report.ML.byMO) + 1]] <- results$roc.report.byMO
-        names(roc.report.ML.byMO)[length(roc.report.ML.byMO)] <- label.name
-        roc.figure.ML.byMO[[length(roc.figure.ML.byMO) + 1]] <- results$roc.figure.byMO
-        names(roc.figure.ML.byMO)[length(roc.figure.ML.byMO)] <- label.name
-      }
-
-      if (!is.null(results$cor.report.byqM)) {
-        cor.report.ML.byqM[[length(cor.report.ML.byqM) + 1]] <- results$cor.report.byqM
-        names(cor.report.ML.byqM)[length(cor.report.ML.byqM)] <- label.name
-        scatterplots.ML.byqM[[length(scatterplots.ML.byqM) + 1]] <- results$scatterplots.byqM
-        names(scatterplots.ML.byqM)[length(scatterplots.ML.byqM)] <- label.name
-        roc.report.ML.byqM[[length(roc.report.ML.byqM) + 1]] <- results$roc.report.byqM
-        names(roc.report.ML.byqM)[length(roc.report.ML.byqM)] <- label.name
-        roc.figure.ML.byqM[[length(roc.figure.ML.byqM) + 1]] <- results$roc.figure.byqM
-        names(roc.figure.ML.byqM)[length(roc.figure.ML.byqM)] <- label.name
-      }
-      if (!is.null(results$cor.report.byRandStat)) {
-        cor.report.ML.byRandStat[[length(cor.report.ML.byRandStat) + 1]] <- results$cor.report.byRandStat
-        names(cor.report.ML.byRandStat)[length(cor.report.ML.byRandStat)] <- label.name
-        scatterplots.ML.byRandStat[[length(scatterplots.ML.byRandStat) + 1]] <- results$scatterplots.byRandStat
-        names(scatterplots.ML.byRandStat)[length(scatterplots.ML.byRandStat)] <- label.name
-        roc.report.ML.byRandStat[[length(roc.report.ML.byRandStat) + 1]] <- results$roc.report.byRandStat
-        names(roc.report.ML.byRandStat)[length(roc.report.ML.byRandStat)] <- label.name
-        roc.figure.ML.byRandStat[[length(roc.figure.ML.byRandStat) + 1]] <- results$roc.figure.byRandStat
-        names(roc.figure.ML.byRandStat)[length(roc.figure.ML.byRandStat)] <- label.name
-      }
-
-      if (!is.null(results$cor.report.byPairing)) {
-        cor.report.ML.byPairing[[length(cor.report.ML.byPairing) + 1]] <- results$cor.report.byPairing
-        names(cor.report.ML.byPairing)[length(cor.report.ML.byPairing)] <- label.name
-        scatterplots.ML.byPairing[[length(scatterplots.ML.byPairing) + 1]] <- results$scatterplots.byPairing
-        names(scatterplots.ML.byPairing)[length(scatterplots.ML.byPairing)] <- label.name
-        roc.report.ML.byPairing[[length(roc.report.ML.byPairing) + 1]] <- results$roc.report.byPairing
-        names(roc.report.ML.byPairing)[length(roc.report.ML.byPairing)] <- label.name
-        roc.figure.ML.byPairing[[length(roc.figure.ML.byPairing) + 1]] <- results$roc.figure.byPairing
-        names(roc.figure.ML.byPairing)[length(roc.figure.ML.byPairing)] <- label.name
-      }
-
-      if (!is.null(results$cor.report.byArm)) {
-        cor.report.ML.byArm[[length(cor.report.ML.byArm) + 1]] <- results$cor.report.byArm
-        names(cor.report.ML.byArm)[length(cor.report.ML.byArm)] <- label.name
-        scatterplots.ML.byArm[[length(scatterplots.ML.byArm) + 1]] <- results$scatterplots.byArm
-        names(scatterplots.ML.byArm)[length(scatterplots.ML.byArm)] <- label.name
-        roc.report.ML.byArm[[length(roc.report.ML.byArm) + 1]] <- results$roc.report.byArm
-        names(roc.report.ML.byArm)[length(roc.report.ML.byArm)] <- label.name
-        roc.figure.ML.byArm[[length(roc.figure.ML.byArm) + 1]] <- results$roc.figure.byArm
-        names(roc.figure.ML.byArm)[length(roc.figure.ML.byArm)] <- label.name
-      }  # HUMAN STARTS HERE
-    } else {
-      cor.report.Human[[length(cor.report.Human) + 1]] <- results$cor.report
-      names(cor.report.Human)[length(cor.report.Human)] <- label.name
-      scatterplots.Human[[length(scatterplots.Human) + 1]] <- results$scatterplots
-      names(scatterplots.Human)[length(scatterplots.Human)] <- label.name
-      roc.report.Human[[length(roc.report.Human) + 1]] <- results$roc.report
-      names(roc.report.Human)[length(roc.report.Human)] <- label.name
-      roc.figure.Human[[length(roc.figure.Human) + 1]] <- results$roc.figure
-      names(roc.figure.Human)[length(roc.figure.Human)] <- label.name
-      sumstats.Human.byARM[[length(sumstats.Human.byARM) + 1]] <- results$sumstats
-      names(sumstats.Human.byARM)[length(sumstats.Human.byARM)] <- label.name
-      analysis.data.in.Human[[length(analysis.data.in.Human) + 1]] <- results$analysis.data
-      names(analysis.data.in.Human)[length(analysis.data.in.Human)] <- label.name
-      cross.sectional.tests.Human[[length(cross.sectional.tests.Human) + 1]] <- results$cross.sectional.tests
-      names(cross.sectional.tests.Human)[length(cross.sectional.tests.Human)] <- label.name
-      if (!is.null(results$cor.report.byAggHist)) {
-        cor.report.Human.byAggHist[[length(cor.report.Human.byAggHist) + 1]] <- results$cor.report.byAggHist
-        names(cor.report.Human.byAggHist)[length(cor.report.Human.byAggHist)] <- label.name
-        scatterplots.Human.byAggHist[[length(scatterplots.Human.byAggHist) + 1]] <- results$scatterplots.byAggHist
-        names(scatterplots.Human.byAggHist)[length(scatterplots.Human.byAggHist)] <- label.name
-        roc.report.Human.byAggHist[[length(roc.report.Human.byAggHist) + 1]] <- results$roc.report.byAggHist
-        names(roc.report.Human.byAggHist)[length(roc.report.Human.byAggHist)] <- label.name
-        roc.figure.Human.byAggHist[[length(roc.figure.Human.byAggHist) + 1]] <- results$roc.figure.byAggHist
-        names(roc.figure.Human.byAggHist)[length(roc.figure.Human.byAggHist)] <- label.name
-      }
-
-      if (!is.null(results$cor.report.byMO)) {
-        cor.report.Human.byMO[[length(cor.report.Human.byMO) + 1]] <- results$cor.report.byMO
-        names(cor.report.Human.byMO)[length(cor.report.Human.byMO)] <- label.name
-        scatterplots.Human.byMO[[length(scatterplots.Human.byMO) + 1]] <- results$scatterplots.byMO
-        names(scatterplots.Human.byMO)[length(scatterplots.Human.byMO)] <- label.name
-        roc.report.Human.byMO[[length(roc.report.Human.byMO) + 1]] <- results$roc.report.byMO
-        names(roc.report.Human.byMO)[length(roc.report.Human.byMO)] <- label.name
-        roc.figure.Human.byMO[[length(roc.figure.Human.byMO) + 1]] <- results$roc.figure.byMO
-        names(roc.figure.Human.byMO)[length(roc.figure.Human.byMO)] <- label.name
-      }
-      if (!is.null(results$cor.report.byqM)) {
-        cor.report.Human.byqM[[length(cor.report.Human.byqM) + 1]] <- results$cor.report.byqM
-        names(cor.report.Human.byqM)[length(cor.report.Human.byqM)] <- label.name
-        scatterplots.Human.byqM[[length(scatterplots.Human.byqM) + 1]] <- results$scatterplots.byqM
-        names(scatterplots.Human.byqM)[length(scatterplots.Human.byqM)] <- label.name
-        roc.report.Human.byqM[[length(roc.report.Human.byqM) + 1]] <- results$roc.report.byqM
-        names(roc.report.Human.byqM)[length(roc.report.Human.byqM)] <- label.name
-        roc.figure.Human.byqM[[length(roc.figure.Human.byqM) + 1]] <- results$roc.figure.byqM
-        names(roc.figure.Human.byqM)[length(roc.figure.Human.byqM)] <- label.name
-      }
-      if (!is.null(results$cor.report.byRandStat)) {
-        cor.report.Human.byRandStat[[length(cor.report.Human.byRandStat) + 1]] <- results$cor.report.byRandStat
-        names(cor.report.Human.byRandStat)[length(cor.report.Human.byRandStat)] <- label.name
-        scatterplots.Human.byRandStat[[length(scatterplots.Human.byRandStat) + 1]] <- results$scatterplots.byRandStat
-        names(scatterplots.Human.byRandStat)[length(scatterplots.Human.byRandStat)] <- label.name
-        roc.report.Human.byRandStat[[length(roc.report.Human.byRandStat) + 1]] <- results$roc.report.byRandStat
-        names(roc.report.Human.byRandStat)[length(roc.report.Human.byRandStat)] <- label.name
-        roc.figure.Human.byRandStat[[length(roc.figure.Human.byRandStat) + 1]] <- results$roc.figure.byRandStat
-        names(roc.figure.Human.byRandStat)[length(roc.figure.Human.byRandStat)] <- label.name
-      }
-
-      if (!is.null(results$cor.report.byPairing)) {
-        cor.report.Human.byPairing[[length(cor.report.Human.byPairing) + 1]] <- results$cor.report.byPairing
-        names(cor.report.Human.byPairing)[length(cor.report.Human.byPairing)] <- label.name
-        scatterplots.Human.byPairing[[length(scatterplots.Human.byPairing) + 1]] <- results$scatterplots.byPairing
-        names(scatterplots.Human.byPairing)[length(scatterplots.Human.byPairing)] <- label.name
-        roc.report.Human.byPairing[[length(roc.report.Human.byPairing) + 1]] <- results$roc.report.byPairing
-        names(roc.report.Human.byPairing)[length(roc.report.Human.byPairing)] <- label.name
-        roc.figure.Human.byPairing[[length(roc.figure.Human.byPairing) + 1]] <- results$roc.figure.byPairing
-        names(roc.figure.Human.byPairing)[length(roc.figure.Human.byPairing)] <- label.name
-      }
-
-      if (!is.null(results$cor.report.byArm)) {
-        cor.report.Human.byArm[[length(cor.report.Human.byArm) + 1]] <- results$cor.report.byArm
-        names(cor.report.Human.byArm)[length(cor.report.Human.byArm)] <- label.name
-        scatterplots.Human.byArm[[length(scatterplots.Human.byArm) + 1]] <- results$scatterplots.byArm
-        names(scatterplots.Human.byArm)[length(scatterplots.Human.byArm)] <- label.name
-        roc.report.Human.byArm[[length(roc.report.Human.byArm) + 1]] <- results$roc.report.byArm
-        names(roc.report.Human.byArm)[length(roc.report.Human.byArm)] <- label.name
-        roc.figure.Human.byArm[[length(roc.figure.Human.byArm) + 1]] <- results$roc.figure.byArm
-        names(roc.figure.Human.byArm)[length(roc.figure.Human.byArm)] <- label.name
-      }
-    }
-  } # ML or Human
-} # for each IQ level
+# Analysis complete - the complex nested loop has been replaced with functional programming above
 ```
 
 
